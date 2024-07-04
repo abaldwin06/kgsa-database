@@ -255,11 +255,17 @@ def import_students(import_data:List[List[str]],student_records:List[RecordDict]
         elif match_type == 'adm no' or update_kcpe == True:
             db_first_name = matching_student['fields']['First name']
             db_last_name = matching_student['fields']['Last name']
-            print(f"Would you like to overwrite {db_first_name} {db_last_name} (KCPE: {at_kcpe_score}) with {csv_first_name} {csv_last_name} (KCPE: {csv_kcpe_score}) from the CSV file?")
+            updated_fields = {
+                'First name': csv_first_name,
+                'Last name': csv_last_name
+            }
+            if update_kcpe:
+                updated_fields['KCPE Score'] = csv_kcpe_score
+            print(f"Would you like to overwrite {db_first_name} {db_last_name} (KCPE: {at_kcpe_score}) with {str(updated_fields)} from the CSV file?")
             choice = user_selection(options_list=['Yes','No'],quit_allowed=False)
             if choice == 'Yes':
                 #TODO update import student to add KCPE
-                updated_student = update_student(matching_student,csv_first_name,csv_last_name,students_table)
+                updated_student = update_student(matching_student,updated_fields,students_table)
                 if updated_student == False:
                     print(f"Failed to Update Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
                 else:
@@ -297,18 +303,15 @@ def find_matching_student(adm_num:int, f_name:str, l_name:str, students:List[Rec
 
     return match_type, matched_student
 
-def update_student(student_record:RecordDict,f_name:str,l_name:str,students_table:Table) -> bool:
+def update_student(student_record:RecordDict,updated_fields:dict,students_table:Table) -> bool:
     at_record_id = student_record['id']
-    updated_fields = {
-            'First name': f_name,
-            'Last name': l_name,
-        }
+
     try:
         updated_student = students_table.update(at_record_id,updated_fields)
-        print(f"Successfully updated record number {updated_student['id']}, Student ID {student_record['fields']['ID']} with name {updated_student['fields']['First name']} {updated_student['fields']['Last name']}")
+        print(f"Successfully updated record number {updated_student['id']}, Student ID {student_record['fields']['ID']} with {str(updated_fields)}")
         return True
     except:
-        print(f"Unable to update record number {at_record_id}, Student ID {student_record['fields']['ID']} with name {f_name} {l_name}")
+        print(f"Unable to update record number {at_record_id}, Student ID {student_record['fields']['ID']} with {str(updated_fields)}")
         return False
 
 def import_student(student_dict:dict,students_table) -> bool:
