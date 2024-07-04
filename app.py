@@ -134,9 +134,9 @@ def parse_kcpe(row:List[str],index:int)  -> int:
     try:
         kcpe_score = int(row[4])
         if kcpe_score <= 0:
-            print(f"Row {index}: No KCPE score listed")
+            print(f"Row {index}: Invalid KCPE score listed")
             return -1
-        print(f"Row {index}: Processed KCPE: {kcpe_score}")
+        #print(f"Row {index}: Processed KCPE: {kcpe_score}")
         return kcpe_score
     except IndexError:
         print(f"Row {index}: Error identifying KCPE score - no data present.")
@@ -198,7 +198,9 @@ def get_students_from_grad_year(fields:List[str],students_table:Table) -> Option
         return None
     else:
         formula = formulas.match({'Grad Class': selected_grad_yr})
+        print(f"fields {fields}")
         records = students_table.all(fields=fields, formula=formula)
+        print(f"records: {records}")
         return (records, selected_grad_yr)
 
 def import_students(import_data:List[List[str]],student_records:List[RecordDict],grad_year:str,students_table:Table):
@@ -216,23 +218,43 @@ def import_students(import_data:List[List[str]],student_records:List[RecordDict]
         # parse details from CSV
         csv_zeraki_num = parse_admno(row,index)
         csv_first_name, csv_last_name = parse_names(row,index)
-        kcpe_score = parse_kcpe(row,index)
+        csv_kcpe_score = parse_kcpe(row,index) #null will return -1
 
         # find if student already exists
         match_type, matching_student = find_matching_student(csv_zeraki_num,csv_first_name,csv_last_name,student_records)
 
-        # do nothing if exact match found    
-        if match_type == 'exact':
-            print(f"No changes to Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
-            continue
+        # check if the KCPE score is already uploaded
+        try:
+            at_kcpe_score = int(matching_student['fields']['KCPE Score'])
+        except KeyError as e:
+            at_kcpe_score = -1
+        if csv_kcpe_score != at_kcpe_score:
+            update_kcpe = True 
+        else:
+            update_kcpe = False
+        if at_kcpe_score == -1:
+            at_kcpe_score = "'blank'"
+
+        # create new student if no match found    
+        if match_type == 'no match':
+            #TODO update import student to add KCPE
+            new_student = import_student(csv_zeraki_num,csv_first_name,csv_last_name,at_student_id,grad_year,students_table)
+            if new_student != False:
+                count_created += 1
+                #increment airtable student id
+                at_student_id += 1
+                print(f"Imported Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
+            else:
+                print(f"Failed to Create Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
 
         # optionally update student if partial match
-        elif match_type == 'adm no':
+        elif match_type == 'adm no' or update_kcpe == True:
             db_first_name = matching_student['fields']['First name']
             db_last_name = matching_student['fields']['Last name']
-            print(f"Would you like to overwrite {db_first_name} {db_last_name} with {csv_first_name} {csv_last_name} from the CSV file?")
+            print(f"Would you like to overwrite {db_first_name} {db_last_name} (KCPE: {at_kcpe_score}) with {csv_first_name} {csv_last_name} (KCPE: {csv_kcpe_score}) from the CSV file?")
             choice = user_selection(options_list=['Yes','No'],quit_allowed=False)
             if choice == 'Yes':
+                #TODO update import student to add KCPE
                 updated_student = update_student(matching_student,csv_first_name,csv_last_name,students_table)
                 if updated_student == False:
                     print(f"Failed to Update Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
@@ -242,16 +264,10 @@ def import_students(import_data:List[List[str]],student_records:List[RecordDict]
             else:
                 print(f"No changes to Student: {csv_zeraki_num}, {db_first_name} {db_last_name}.")
         
-        # create new student if no match found
-        elif match_type == 'no match':
-            new_student = import_student(csv_zeraki_num,csv_first_name,csv_last_name,at_student_id,grad_year,students_table)
-            if new_student != False:
-                count_created += 1
-                #increment airtable student id
-                at_student_id += 1
-                print(f"Imported Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
-            else:
-                print(f"Failed to Create Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
+        # do nothing if exact match
+        elif match_type == 'exact':
+            print(f"No changes to Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
+            continue
 
         # should never occur
         else:
