@@ -341,11 +341,12 @@ def main():
 
     # DETERMINE TYPE OF IMPORT
     print("Please choose what type of data you are importing from Zeraki:")
-    import_type = user_selection(['Students','Grades'])
+    import_type_options = ['Students and KCPEs','Term Grades']
+    import_type = user_selection(import_type_options)
     #import_type = select_import_type()
     if import_type == 'quit':
         return False
-    elif import_type in ['Students','Grades']:
+    elif import_type in import_type_options:
         # Select CSV to import
         selected_file = select_file()
         if selected_file == None:
@@ -362,7 +363,7 @@ def main():
             # Connect to Airtable Table: Students
             b = initialize_airtable()
             students_table = b.table('Students')
-            if import_type == 'Students':
+            if import_type == import_type_options[0]:
                 # limit the fields returned
                 student_import_fields = ['ID','First name','Last name','Grad Class','Zeraki ADM No']
                 # limit the records returned by grad year
@@ -378,7 +379,7 @@ def main():
                 print(f"Out of {total} total CSV students, {created} new student records were created and {updated} student records were updated.")
                 return True
 
-            elif import_type == 'Grades':
+            elif import_type == import_type_options[1]:
                 print('Grades import not supported yet, quitting program.')
                 return False
             else:
