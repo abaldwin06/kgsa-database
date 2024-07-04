@@ -198,9 +198,7 @@ def get_students_from_grad_year(fields:List[str],students_table:Table) -> Option
         return None
     else:
         formula = formulas.match({'Grad Class': selected_grad_yr})
-        print(f"fields {fields}")
         records = students_table.all(fields=fields, formula=formula)
-        print(f"records: {records}")
         return (records, selected_grad_yr)
 
 def import_students(import_data:List[List[str]],student_records:List[RecordDict],grad_year:str,students_table:Table):
@@ -226,26 +224,32 @@ def import_students(import_data:List[List[str]],student_records:List[RecordDict]
         # check if the KCPE score is already uploaded
         try:
             at_kcpe_score = int(matching_student['fields']['KCPE Score'])
-        except KeyError as e:
+        except (KeyError,TypeError) as e:
             at_kcpe_score = -1
-        if csv_kcpe_score != at_kcpe_score:
+        if csv_kcpe_score not in (at_kcpe_score,-1):
             update_kcpe = True 
         else:
             update_kcpe = False
-        if at_kcpe_score == -1:
-            at_kcpe_score = "'blank'"
 
         # create new student if no match found    
         if match_type == 'no match':
-            #TODO update import student to add KCPE
-            new_student = import_student(csv_zeraki_num,csv_first_name,csv_last_name,at_student_id,grad_year,students_table)
+            student_template = {
+                'ID': at_student_id,
+                'First name': csv_first_name,
+                'Last name': csv_last_name,
+                'Zeraki ADM No': csv_zeraki_num,
+                'Grad Class': grad_year
+            }
+            if update_kcpe:
+                student_template['KCPE Score'] = csv_kcpe_score
+            new_student = import_student(student_template,students_table)
             if new_student != False:
                 count_created += 1
                 #increment airtable student id
                 at_student_id += 1
-                print(f"Imported Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
+                print(f"Imported Student: {str(student_template)}") #{csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
             else:
-                print(f"Failed to Create Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
+                print(f"Failed to Create Student: {str(student_template)}") #{csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
 
         # optionally update student if partial match
         elif match_type == 'adm no' or update_kcpe == True:
@@ -307,20 +311,14 @@ def update_student(student_record:RecordDict,f_name:str,l_name:str,students_tabl
         print(f"Unable to update record number {at_record_id}, Student ID {student_record['fields']['ID']} with name {f_name} {l_name}")
         return False
 
-def import_student(admnum,f_name,l_name,at_id,grad_year,students_table) -> bool:
-    student = {
-        'ID': at_id,
-        'First name': f_name,
-        'Last name': l_name,
-        'Zeraki ADM No': admnum,
-        'Grad Class': grad_year
-    }
+def import_student(student_dict:dict,students_table) -> bool:
+
     try:
-        created_student = students_table.create(student)
-        print(f"Successfully created Student (record id {created_student['id']}) with Student ID {at_id}, Adm No {admnum} with name {f_name} {l_name} and grad year {grad_year}")
+        created_student = students_table.create(student_dict)
+        print(f"Successfully created Student (record id {created_student['id']}) with Student details: {str(student_dict)}")
         return True
-    except:
-        print(f"Unable to create Student with AT ID {at_id}, Adm No {admnum} with name {f_name} {l_name}")
+    except Exception as e:
+        print(f"Unable to create Student with Student details: {str(student_dict)} - {e}")
         return False
 
 def get_next_at_student_id(grad_year:str,students:List[RecordDict]) -> int:
