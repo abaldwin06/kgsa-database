@@ -74,31 +74,6 @@ def select_file() -> Optional[TextIO]:
         selected_file = open(selected_file_path,mode="r",newline='')
         return selected_file
 
-    for idx, file in enumerate(files,start=1):
-        print(f"{idx}: {file}")
-    
-    # Get user input
-    while True:
-        user_choice = input("Enter the number of your choice: ").strip().lower()
-        if user_choice == 'q':
-            print("Quitting the program.")
-            return 'quit'
-        else:
-            try:
-                user_choice_int = int(user_choice)
-                if user_choice_int <= 0 or user_choice_int > len(files):
-                    print("Invalid number entered. Please enter a valid number.")
-                else:
-                    selected_file = files[user_choice_int-1]
-                    print(f"You have selected: {selected_file}")
-
-                    # Full path of the selected file
-                    selected_file_path = os.path.join(folder_name, selected_file)
-                    file = open(selected_file_path,mode="r",newline='')
-                    return file
-            except ValueError as e:
-                print("Please enter a valid number.")
-
 # CSV Processing Functions
 def validate_zeraki_headers(headers:List[str]) -> bool:
     # expected headers
@@ -153,6 +128,22 @@ def parse_names(row:List[str],index:int) -> Tuple[str,str]:
     except IndexError:
         print(f"Row {index}: Error identifying Student Name - no data present.")
         return '',''
+
+def parse_kcpe(row:List[str],index:int)  -> int:
+    # Get KCPE Score
+    try:
+        kcpe_score = int(row[4])
+        if kcpe_score <= 0:
+            print(f"Row {index}: No KCPE score listed")
+            return -1
+        print(f"Row {index}: Processed KCPE: {kcpe_score}")
+        return kcpe_score
+    except IndexError:
+        print(f"Row {index}: Error identifying KCPE score - no data present.")
+        return -1
+    except ValueError:
+        print(f"Row {index}: Error identifying KCPE score - value '{row[4]}' could not be converted to integer.")
+        return -1
 
 def parse_csv(file:TextIO) -> Optional[List[List[str]]]:
     reader = csv.reader(file)
@@ -225,6 +216,7 @@ def import_students(import_data:List[List[str]],student_records:List[RecordDict]
         # parse details from CSV
         csv_zeraki_num = parse_admno(row,index)
         csv_first_name, csv_last_name = parse_names(row,index)
+        kcpe_score = parse_kcpe(row,index)
 
         # find if student already exists
         match_type, matching_student = find_matching_student(csv_zeraki_num,csv_first_name,csv_last_name,student_records)
@@ -365,7 +357,7 @@ def main():
             students_table = b.table('Students')
             if import_type == import_type_options[0]:
                 # limit the fields returned
-                student_import_fields = ['ID','First name','Last name','Grad Class','Zeraki ADM No']
+                student_import_fields = ['ID','First name','Last name','Grad Class','Zeraki ADM No','KCPE Score']
                 # limit the records returned by grad year
                 filtered_students = get_students_from_grad_year(student_import_fields,students_table)
                 if filtered_students == None:
