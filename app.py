@@ -1,17 +1,19 @@
 import os
 import csv
-from pyairtable import Api, formulas
-from pyairtable.models.schema import SingleSelectFieldSchema
+from typing import List, Tuple, Optional, TextIO, Literal
+from pyairtable import Api, formulas, Table, Base
+from pyairtable.api.types import RecordDict, CreateRecordDict
+from pyairtable.models.schema import SingleSelectFieldSchema,FieldSchema
 
 # User Input Functions
-def user_selection(options_list:list,quit_allowed:bool=True):
+def user_selection(options_list:List[str],quit_allowed:bool=True) -> str:
     for idx, option in enumerate(options_list,start=1):
         print(f"{idx}: {option}")
     
     # Get user input
     while True:
         user_choice = input("Enter the number of your choice: ").strip().lower()
-        if user_choice == 'q' and quit_allowed == True:
+        if user_choice in ['q','quit'] and quit_allowed == True:
             print("Quitting the program.")
             return 'quit'
         else:
@@ -26,20 +28,20 @@ def user_selection(options_list:list,quit_allowed:bool=True):
             except ValueError as e:
                 print("Please enter a valid number.")   
 
-def list_files(directory):
+def list_files(directory:str) -> List[str]:
     """List all files in the given directory and return a list of file names.
 
     Args:
-        directory (string): pull path to the 'to-import' folder, expected in the parent directory of th eprogram
+        directory (str): pull path to the 'to-import' folder, expected in the parent directory of th eprogram
 
     Returns:
-        list of strings: list of filepaths to files in the 'to-import' folder
+        List[str]: list of filepaths to files in the 'to-import' folder
     """
     files = os.listdir(directory)
     files = [f for f in files if os.path.isfile(os.path.join(directory, f))]
     return files
 
-def select_file():
+def select_file() -> Optional[TextIO]:
     """Select the CSV file to import into Airtable from the files in the 'to-import' 
        folder within the current directory
 
@@ -64,10 +66,13 @@ def select_file():
     # Display the files with an index number
     print("Please choose a file to import:")
     selected_file_name = user_selection(files)
-    # Full path of the selected file
-    selected_file_path = os.path.join(folder_name, selected_file_name)
-    selected_file = open(selected_file_path,mode="r",newline='')
-    return selected_file
+    if selected_file_name == 'quit':
+            return None
+    else:
+        # Full path of the selected file
+        selected_file_path = os.path.join(folder_name, selected_file_name)
+        selected_file = open(selected_file_path,mode="r",newline='')
+        return selected_file
 
     for idx, file in enumerate(files,start=1):
         print(f"{idx}: {file}")
@@ -94,37 +99,8 @@ def select_file():
             except ValueError as e:
                 print("Please enter a valid number.")
 
-def select_import_type():
-    """Selects what kind of import the user would like to do, offering the option to quit out
-
-    Returns:
-        string: 'grades', 'students', or 'quit' based on user input
-    """
-    print("Please choose an option:")
-    print("1: Import students from Zeraki")
-    print("2: Import grades from Zeraki")
-
-    while True:
-        user_choice = input("Enter the number of your choice: ").strip().lower()
-        if user_choice == 'q':
-            print("Quitting the program.")
-            return 'quit'
-        else:
-            try:
-                user_choice_int = int(user_choice)
-                if user_choice_int == 1:
-                    print("Import of students selected.")
-                    return 'students'
-                elif user_choice_int == 2:
-                    print("Import of grades selected.")
-                    return 'grades'
-                else:
-                    print("Invalid choice. Please enter '1', '2', or 'q'")
-            except ValueError:
-                print("Invalid input. Please enter '1', '2', or 'q'")
-
 # CSV Processing Functions
-def validate_zeraki_headers(headers):
+def validate_zeraki_headers(headers:List[str]) -> bool:
     # expected headers
     expected_headers = ['#', 'ADMNO', 'NAME', 'STR', 'KCPE', 'ENG', 'KIS', 'MAT', 'BIO', 'PHY', 'CHE', 'HIS', 'GEO', 'CRE', 'IRE', 'BST', 'SBJ', 'VAP', 'MN MKS', 'GR', 'TT MKS', 'TT PTS', 'MN PTS', 'DEV', 'STR POS', 'OVR POS']
     expected_header_string = ",".join(expected_headers)
@@ -142,7 +118,7 @@ def validate_zeraki_headers(headers):
         #print(header_string)
         return True
 
-def parse_admno(row,index):
+def parse_admno(row:List[str],index:int) -> int:
     # Get Zeraki Number
     try:
         zeraki_num = int(row[1])
@@ -155,7 +131,7 @@ def parse_admno(row,index):
         print(f"Row {index}: Error identifying Zeraki number in the ADMNO column - value '{row[1]}' could not be converted to integer.")
         return -1
 
-def parse_names(row, index):
+def parse_names(row:List[str],index:int) -> Tuple[str,str]:
     # Get Student Name
     try:
         full_name = row[2]
@@ -178,11 +154,11 @@ def parse_names(row, index):
         print(f"Row {index}: Error identifying Student Name - no data present.")
         return '',''
 
-def parse_csv(file):
+def parse_csv(file:TextIO) -> Optional[List[List[str]]]:
     reader = csv.reader(file)
     headers = next(reader)  # Assume first row is headers
     if validate_zeraki_headers(headers) == False:
-        return False
+        return None
     else:
         # create a 2D list of CSV data
         #   each list item is a row of data, 
@@ -191,7 +167,7 @@ def parse_csv(file):
         return data
 
 # Airtable functions
-def initialize_airtable():
+def initialize_airtable() -> Base:
     """Find access key in current directory, connect to airtable, 
        and retrieve the database object
 
@@ -214,7 +190,7 @@ def initialize_airtable():
     b = api.base(base_id)
     return b
 
-def get_field_options(field):
+def get_field_options(field:FieldSchema) -> List[str]:
     allowed_values = field.options.choices
     return_list = []
     for val in allowed_values:
@@ -222,45 +198,25 @@ def get_field_options(field):
     return return_list
 
 # Student functions
-def get_students_from_grad_year(fields):
-    b = initialize_airtable()
-    students_table = b.table('Students')
+def get_students_from_grad_year(fields:List[str],students_table:Table) -> Optional[Tuple[List[RecordDict],str]]:
     grad_yr_field = students_table.schema().field('Grad Class')
     grad_yr_options = get_field_options(grad_yr_field)
     print('Please select the graduating class year for the students you are importing:')
     selected_grad_yr = user_selection(grad_yr_options)
     if selected_grad_yr == 'quit':
-        return False, False
+        return None
     else:
         formula = formulas.match({'Grad Class': selected_grad_yr})
         records = students_table.all(fields=fields, formula=formula)
-        return records, selected_grad_yr
+        return (records, selected_grad_yr)
 
-def find_matching_student(adm_num, f_name, l_name, students):
-    match_type = 'no match'
-    matched_student = None
-    # search airtable data for matching zeraki num, grad class, name
-    for student in students:
-        if adm_num == student['fields']['Zeraki ADM No']:
-            match_type = 'adm no'
-            matched_student = student
-            
-            db_first_name = student['fields']['First name']
-            db_last_name = student['fields']['Last name']
-            print(f"Student #{adm_num}: {f_name} {l_name} already exists in DB as {db_first_name} {db_last_name}")
-            
-            if f_name == db_first_name and l_name == db_last_name:
-                match_type = 'exact'
-            break
-
-    return match_type, matched_student
-
-def import_students(import_data,student_records,grad_year:int):
+def import_students(import_data:List[List[str]],student_records:List[RecordDict],grad_year:str,students_table:Table):
     count_total = 0
     count_updated = 0
     count_created = 0
 
-    # Get max airtable ID for the relevant student records
+    # Get next available airtable ID for the relevant student records
+    at_student_id = get_next_at_student_id(grad_year,student_records)
 
     # loop through CSV data
     for index,row in enumerate(import_data):
@@ -285,7 +241,7 @@ def import_students(import_data,student_records,grad_year:int):
             print(f"Would you like to overwrite {db_first_name} {db_last_name} with {csv_first_name} {csv_last_name} from the CSV file?")
             choice = user_selection(options_list=['Yes','No'],quit_allowed=False)
             if choice == 'Yes':
-                updated_student = update_student(matching_student,csv_first_name,csv_last_name)
+                updated_student = update_student(matching_student,csv_first_name,csv_last_name,students_table)
                 if updated_student == False:
                     print(f"Failed to Update Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
                 else:
@@ -296,10 +252,11 @@ def import_students(import_data,student_records,grad_year:int):
         
         # create new student if no match found
         elif match_type == 'no match':
-            at_student_id = create_airtable_student_id(grad_year,student_records)
-            new_student = import_student(csv_zeraki_num,csv_first_name,csv_last_name,at_student_id,grad_year)
+            new_student = import_student(csv_zeraki_num,csv_first_name,csv_last_name,at_student_id,grad_year,students_table)
             if new_student != False:
                 count_created += 1
+                #increment airtable student id
+                at_student_id += 1
                 print(f"Imported Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
             else:
                 print(f"Failed to Create Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name}.")
@@ -309,19 +266,56 @@ def import_students(import_data,student_records,grad_year:int):
             print(f"Error encountered trying to match Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name} - No Changes Made.")
     return count_total, count_created, count_updated
 
-def update_student(student_record,f_name,l_name):
-    print(f"Would UPDATE student in class of {student_record['fields']['Grad Class']} with AT ID {student_record['fields']['ID']}, Adm No {student_record['fields']['Zeraki ADM No']} with name {f_name} {l_name}")
-    # if partial match found (name is fuzzy match), get user input of "would you like to update this student's name?"
-    # TODO
-    return True
+def find_matching_student(adm_num:int, f_name:str, l_name:str, students:List[RecordDict]) -> Tuple[Literal['exact', 'adm no', 'no match'],Optional[RecordDict]]:
+    match_type = 'no match'
+    matched_student = None
+    # search airtable data for matching zeraki num, grad class, name
+    for student in students:
+        if adm_num == student['fields']['Zeraki ADM No']:
+            match_type = 'adm no'
+            matched_student = student
+            
+            db_first_name = student['fields']['First name']
+            db_last_name = student['fields']['Last name']
+            print(f"Student #{adm_num}: {f_name} {l_name} already exists in DB as {db_first_name} {db_last_name}")
+            
+            if f_name == db_first_name and l_name == db_last_name:
+                match_type = 'exact'
+            break
 
-def import_student(admnum,f_name,l_name,at_id,grad_year):
-    print(f"Would CREATE new student in class of {grad_year} with AT ID {at_id}, Adm No {admnum} and name {f_name} {l_name}")
-    # if match not found - create object w/ name, zeraki num, grad class
-    # TODO
-    return True
+    return match_type, matched_student
 
-def create_airtable_student_id(grad_year,students):
+def update_student(student_record:RecordDict,f_name:str,l_name:str,students_table:Table) -> bool:
+    at_record_id = student_record['id']
+    updated_fields = {
+            'First name': f_name,
+            'Last name': l_name,
+        }
+    try:
+        updated_student = students_table.update(at_record_id,updated_fields)
+        print(f"Successfully updated record number {updated_student['id']}, Student ID {student_record['fields']['ID']} with name {updated_student['fields']['First name']} {updated_student['fields']['Last name']}")
+        return True
+    except:
+        print(f"Unable to update record number {at_record_id}, Student ID {student_record['fields']['ID']} with name {f_name} {l_name}")
+        return False
+
+def import_student(admnum,f_name,l_name,at_id,grad_year,students_table) -> bool:
+    student = {
+        'ID': at_id,
+        'First name': f_name,
+        'Last name': l_name,
+        'Zeraki ADM No': admnum,
+        'Grad Class': grad_year
+    }
+    try:
+        created_student = students_table.create(student)
+        print(f"Successfully created Student (record id {created_student['id']}) with Student ID {at_id}, Adm No {admnum} with name {f_name} {l_name} and grad year {grad_year}")
+        return True
+    except:
+        print(f"Unable to create Student with AT ID {at_id}, Adm No {admnum} with name {f_name} {l_name}")
+        return False
+
+def get_next_at_student_id(grad_year:str,students:List[RecordDict]) -> int:
     try:
         max_id = max(student['fields']['ID'] for student in students)
         next_id = max_id+1
@@ -344,35 +338,47 @@ def main():
         bool: True if import successful, False otherwise
     """
     print("Welcome to the KGSA Airtable import tool.")
-    
-    import_type = select_import_type()
+
+    # DETERMINE TYPE OF IMPORT
+    print("Please choose what type of data you are importing from Zeraki:")
+    import_type = user_selection(['Students','Grades'])
+    #import_type = select_import_type()
     if import_type == 'quit':
         return False
-    elif import_type in ['students','grades']:
+    elif import_type in ['Students','Grades']:
         # Select CSV to import
         selected_file = select_file()
-        if selected_file == 'quit':
+        if selected_file == None:
             return False
 
+        # PARSE CSV IMPORT DATA
         # Parse and Validate CSV
         csv_data = parse_csv(selected_file)
-        if csv_data == False:
+        if csv_data == None:
             return False
         else:
-            if import_type == 'students':
+            
+            # PULL RELEVANT RECORDS AND FIELDS FROM DB
+            # Connect to Airtable Table: Students
+            b = initialize_airtable()
+            students_table = b.table('Students')
+            if import_type == 'Students':
                 # limit the fields returned
                 student_import_fields = ['ID','First name','Last name','Grad Class','Zeraki ADM No']
                 # limit the records returned by grad year
-                student_records, grad_year = get_students_from_grad_year(student_import_fields)
-                if student_records == False:
+                filtered_students = get_students_from_grad_year(student_import_fields,students_table)
+                if filtered_students == None:
                     return False
+                else:
+                    student_records, grad_year = filtered_students
 
+                # IMPORT STUDENT DATA
                 #import data and print outcome
-                total, created, updated = import_students(csv_data,student_records,grad_year)
+                total, created, updated = import_students(csv_data,student_records,grad_year,students_table)
                 print(f"Out of {total} total CSV students, {created} new student records were created and {updated} student records were updated.")
                 return True
 
-            elif import_type == 'grades':
+            elif import_type == 'Grades':
                 print('Grades import not supported yet, quitting program.')
                 return False
             else:
