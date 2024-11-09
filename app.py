@@ -5,6 +5,9 @@ from pyairtable import Api, formulas, Table, Base
 from pyairtable.api.types import RecordDict, CreateRecordDict
 from pyairtable.models.schema import SingleSelectFieldSchema,FieldSchema
 
+class DuplicateRecordError(Exception):
+    pass
+
 # User Input Functions
 def user_selection(options_list:List[str],quit_allowed:bool=True) -> str:
     for idx, option in enumerate(options_list,start=1):
@@ -283,6 +286,53 @@ def import_students(import_data:List[List[str]],student_records:List[RecordDict]
         else:
             print(f"Error encountered trying to match Student: {csv_zeraki_num}, {csv_first_name} {csv_last_name} - No Changes Made.")
     return count_total, count_created, count_updated
+def find_student_match(adm_num:int, f_name:str, l_name:str, kcpe:int, students:List[RecordDict]) -> Optional[Tuple[dict,Optional[RecordDict]]]:
+    match_outcome_list = []
+    for idx, student in enumerate(students,start=0):
+        match = {
+            'idx': idx,
+            'adm': False,
+            'fname': False,
+            'lname': False,
+            'kcpe': False
+        }
+        if f_name == student['fields']['First name']:
+            match['fname'] = True
+        if l_name == student['fields']['Last name']:
+            match['lname'] = True
+        try:
+            if adm_num == student['fields']['Zeraki ADM No']:
+                match['adm'] = True
+        except (KeyError,TypeError) as e:
+            pass
+        try:
+            if adm_num == student['fields']['KCPE Score']:
+                match['adm'] = True
+        except (KeyError,TypeError) as e:
+            pass
+        match_outcome_list.append(match)
+
+    exact_matches = [m for m in match_outcome_list if m['adm'] and m['fname'] and m['lname']]
+    if len(exact_matches) > 1:
+        raise DuplicateRecordError(f"There are more than 1 student records with ID#{adm_num} named {f_name} {l_name}.")
+    elif len(exact_matches) == 0:
+        pass
+    elif len(exact_matches) == 1:
+        return exact_matches[0], students[exact_matches[0]['idx']]
+    full_name_matches = [m for m in match_outcome_list if m['fname'] and m['lname']]
+    if len(full_name_matches) > 1:
+        raise DuplicateRecordError(f"There are more than 1 student records named {f_name} {l_name}.")
+    elif len(full_name_matches) == 0:
+        pass
+    elif len(full_name_matches) == 1:
+        return full_name_matches[0], students[full_name_matches[0]['idx']]
+    partial_name_matches = [m for m in match_outcome_list if m['fname'] or m['lname']]
+    if len(partial_name_matches) >= 1:
+        for partial_match in partial_name_matches:
+            if user_selection(['Yes','No'],False) == 'Yes':
+                return partial_match, students[partial_match['idx']]
+    else:
+        return None
 
 def find_matching_student(adm_num:int, f_name:str, l_name:str, students:List[RecordDict]) -> Tuple[Literal['exact', 'adm no', 'no match'],Optional[RecordDict]]:
     match_type = 'no match'

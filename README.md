@@ -17,3 +17,4 @@ This repository contains a program that manages automatic and manual imports int
 # TODO 
 - allow for importing zeraki data for students that don't have a zeraki ID in the system (matching just based on name)
 - allow for selecting a type of grades and importing them
+- update zeraki headers check to reorder the headers
