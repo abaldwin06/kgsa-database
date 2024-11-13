@@ -1,6 +1,9 @@
 # files to import
 kgsa-database/to-import/
 .abaldwin-kgsa-airtable-token.txt
+.export/
+
+.DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

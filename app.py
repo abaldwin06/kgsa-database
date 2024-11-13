@@ -217,9 +217,10 @@ def compare_students(csv_data:dict,db_data:dict):
 
             # DATA TO BE UPDATED
             else:    
-                print(f" -edit- {key}: {csv_val} -> {db_data[key]}")
+                print(f" -edit- {key}: {db_data[key]} -> {csv_val}")
                 keys_to_update.append(key)
-
+    
+    print("")
     return keys_to_update
 
 # CSV Processing Functions
@@ -283,6 +284,181 @@ def get_students_from_grad_year(fields:List[str],students_table:Table) -> Option
         records = students_table.all(fields=fields, formula=formula)
         return (records, selected_grad_yr)
 
+def get_next_at_student_id(grad_year:str,students:List[RecordDict]) -> int:
+    try:
+        max_id = max(student['fields']['ID'] for student in students)
+        next_id = max_id+1
+    except:
+        max_id = 0
+    if max_id == 0 or max_id == '' or max_id == 'None':
+        next_id = (int(grad_year)-2000)*100
+    return next_id
+
+def find_match_by_znum(record:ImportRecord, students:List[RecordDict]) -> ImportRecord:
+    record.match_type = 'no match'
+    #check for znum match
+    try:
+        input_znum = int(record.get('zeraki_num'))
+    except ValueError:
+        # invalid zeraki num in import
+        print(f"Zeraki number in import csv should be a numeric value. No match possible by Zeraki Num.")
+        return record
+
+    # search airtable data for matching zeraki num, grad class, name
+    for student in students:
+        try:
+            at_znum = int(student['fields']['Zeraki ADM No'])
+        except (KeyError, ValueError):
+            # no zeraki num or invalid num in db so continue to next student
+            continue
+        
+        if input_znum == at_znum:
+            record.at_id = student['fields']['ID']
+            record.match_type = 'adm no'
+            record.matched_record = student
+            try:
+                record.grad_year = student['fields']['Grad Class']
+            except KeyError:
+                pass
+
+            #check for exact match
+            db_first_name = student['fields']['First name']
+            db_last_name = student['fields']['Last name']
+            if record.name('first') == db_first_name and record.name('last') == db_last_name:
+                record.match_type = 'exact'
+                print(f"Found exact match by Zeraki Num {input_znum} and Name for Student ID {record.at_id} - {record.name()}.")
+                print("")
+                return record
+            else:
+                print(f"Found match by Zeraki Num {input_znum} to Student ID {record.at_id} - {db_first_name} {db_last_name}.")
+                print("")
+                return record
+    print(f"No matches found by Zeraki Number {input_znum} - {record.name()}.")
+    print("")
+    return record
+
+def find_match_by_name(record:ImportRecord, students:List[RecordDict]) -> ImportRecord:
+    match_outcome_list = []
+    for student in students:
+        match_type = 'no match'
+        db_first_name = student['fields']['First name'].upper()
+        db_last_name = student['fields']['Last name'].upper()
+
+        # Automatically match and return full name matches
+        if record.name('first') == db_first_name and record.name('last') == db_last_name:
+            match_type = 'full name'
+            record.matched_record = student
+            record.at_id = record.matched_record['fields']['ID']
+            record.match_type = match_type
+            try:
+                record.grad_year = student['fields']['Grad Class']
+            except KeyError:
+                pass
+            print(f"Found {record.get('match_type')} match for Student ID {record.at_id} - {record.name()}")
+            print("")
+            return record
+
+        #set other match types
+        elif record.name('last') == db_last_name:
+            match_type = 'last name'
+        elif record.name('first') == db_first_name:
+            match_type = 'first name'
+        else:
+            # check if any of their names match, regardless of order
+            db_name_list = db_first_name.split(' ')+db_last_name.split(' ')
+            csv_name_list = record.name().split(' ')
+            common_names = [item for item in db_name_list if item in csv_name_list]
+            if len(common_names)> 0:
+                match_type = 'common name'
+        
+        # add each potential match (besides full name matches) to a selection list
+        try:
+            match_outcome_list.append((student,match_type,f"Student ID: {student['fields']['ID']}: First name: {db_first_name} Last name: {db_last_name}"))
+        except UnboundLocalError: #if match_type isn't set, it's not a match so skip to the next student
+           continue
+        
+    # loop through match types in order of likely accuracy
+    for match_type in ['last name','first name','common name','no match']:
+        match_options = [m[2] for m in match_outcome_list if m[1] == match_type]
+        match_options.append('None of these are a match')
+
+        # print to user why the listed students are possible matches
+        if len(match_options) > 1:
+            if match_type == 'no match':
+                print(f"The following Airtable records have no names in common with {record.name()}. However, please select if any of these is a correct match for this student:")
+            else:
+                print(f"The following Airtable records have a {match_type} that matches student {record.name()}. Please select which one is a correct match for this student:")
+            
+            #ask user for selection to confirm student match
+            selected_record_text = user_selection(match_options,quit_allowed=True)
+            if selected_record_text == 'quit':
+                return 'quit'
+
+            #handle user selection
+            selected_record_list = [m for m in match_outcome_list if selected_record_text == m[2]]
+            if len(selected_record_list) > 1:
+                raise DuplicateRecordError
+            elif len(selected_record_list) == 1:
+                record.matched_record = selected_record_list[0][0]
+                record.at_id = record.matched_record['fields']['ID']
+                record.match_type = match_type
+                try:
+                    record.grad_year = student['fields']['Grad Class']
+                except KeyError:
+                    pass
+                #print(f"Match found by {match_type} for student {str(record)}")
+                return record
+    print(f"No matches found by name for student {record.name()}.")
+    print("")
+    return record
+
+def convert_numeric_values(table:Table,field_dict:dict):
+    for key,val in field_dict.items():
+        field = table.schema().field(key)
+        if field.type  == 'number':
+            field_dict[key] = int(val)
+
+    return field_dict
+
+def check_field_errors(input:dict,output:RecordDict) -> True:
+    errors = []
+    for key in output['fields'].keys():
+        if key in input.keys():
+            if input[key] != output['fields'][key]:
+                errors.append(key)
+    if len(errors) > 0:
+        err_str = ", ".join(errors)
+        print(f"The following fields for Student ID {output['fields']['ID']} could not be imported: {err_str}")
+        return True
+    else:
+        return False
+
+def update_student(student_record:RecordDict,fields_to_update:dict,students_table:Table) -> bool:
+    at_record_id = student_record['id']
+
+    fields_to_update = convert_numeric_values(students_table,fields_to_update)
+    try:
+        updated_student = students_table.update(at_record_id,fields_to_update)
+    except:
+         print(f"Unable to update Student ID {student_record['fields']['ID']} with {str(fields_to_update)}")
+         return False
+    if check_field_errors(fields_to_update,updated_student):
+        return False
+    else:
+        print(f"Successfully updated Student ID {student_record['fields']['ID']} with {str(fields_to_update)}")
+        return True
+
+def create_student(student_dict:dict,students_table) -> RecordDict:
+    student_dict = convert_numeric_values(students_table,students_table)
+    try:
+        created_student = students_table.create(student_dict)
+        print(f"Successfully created Student ID {created_student['fields']['ID']} with Student details: {str(student_dict)}")
+        return created_student
+    except Exception:
+        print(f"Unable to create Student with Student details: ")
+        print_dict(student_dict)
+        return False
+
 def import_students(import_data:List[ImportRecord],student_records:List[RecordDict],grad_year:str,students_table:Table,test_flag:bool=True):
     count_total = 0
     count_updated = 0
@@ -297,6 +473,7 @@ def import_students(import_data:List[ImportRecord],student_records:List[RecordDi
 --------
 Now importing CSV row {import_record.get('csv_row')}...
         """)
+        import_outcome = None
 
         # find if student already exists
         import_record = find_match_by_znum(import_record,student_records)
@@ -306,7 +483,7 @@ Now importing CSV row {import_record.get('csv_row')}...
             if import_record =='quit':
                 break
 
-        # create new student if no match found    
+        # create NEW STUDENT if no match found    
         if import_record.get('match_type') == 'no match':
             print(f"")
             print(f"No match was found.")
@@ -322,18 +499,21 @@ Now importing CSV row {import_record.get('csv_row')}...
                 continue
             student_template = import_record.return_import_dict(at_student_id)
             if test_flag == True:
-                new_student = True
+                import_outcome = True
             else:
-                new_student = import_student(student_template,students_table)
-            if new_student == True:
+                created_student = create_student(student_template,students_table)
+                if isinstance(created_student,RecordDict):
+                    import_outcome = True # if record was created, import was successful enough that the at ID should be incremented
+                    check_field_errors(student_template, created_student)
+            if import_outcome == True:
                 import_record.at_id = at_student_id
                 import_record.at_edit_type = 'new'
                 count_created += 1
                 at_student_id += 1
-            else:
-                print(f"Failed to Create Student: {str(import_record)}, skipping student...") 
+            # else:
+            #     print(f"Failed to Create Student: {str(import_record)}, skipping student...") 
 
-        # optionally update student if partial match
+        # optionally UPDATE STUDENT if partial match
         else:
             csv_fields = import_record.return_import_dict()
             db_student = import_record.matched_record
@@ -343,6 +523,8 @@ Now importing CSV row {import_record.get('csv_row')}...
                 print(f"No data to updated on Student Record {db_fields['ID']}, skipping student.")
                 continue
             fields_to_import = {}
+
+            # get user input on which fields to update
             for key in keys_to_update:
                 print(f"Would you like to update the students {key} in Airtable?")
                 print('Please select Y/N:')
@@ -351,160 +533,22 @@ Now importing CSV row {import_record.get('csv_row')}...
                     pass
                 else:
                     fields_to_import[key] = csv_fields[key]
-            else:
-                print(f"DB will be updated with the following data:")
-                print_dict(fields_to_import)
+            
+            # move forward with updating the student record
             if test_flag == True:
-                updated_student = True
+                import_outcome = True
             else:
-                updated_student = update_student(db_student,fields_to_import,students_table)
-            if updated_student == True:
+                import_outcome = update_student(db_student,fields_to_import,students_table)
+            if import_outcome == True:
                 import_record.at_edit_type = 'edit'
                 count_updated += 1
-                print(f"Updated Student with CSV data: {str(fields_to_import)}.")
-            else:
-                print(f"Failed to Update Student with CSV data: {str(fields_to_import)}, skipping student...")
+            # else:
+            #     print(f"Failed to Update Student with CSV data: {str(fields_to_import)}, skipping student...")
 
         if test_flag:
             print(f"Test mode - no actual import completed")
 
     return count_total, count_created, count_updated
-
-def find_match_by_znum(record:ImportRecord, students:List[RecordDict]) -> ImportRecord:
-    record.match_type = 'no match'
-    # search airtable data for matching zeraki num, grad class, name
-    for student in students:
-        try:
-            at_znum = student['fields']['Zeraki ADM No']
-        except KeyError:
-            continue
-        
-        #check for znum match
-        if record.get('zeraki_num') == at_znum:
-            record.at_id = student['fields']['ID']
-            record.match_type = 'adm no'
-            record.matched_student = student
-            try:
-                record.grad_year = student['fields']['Grad Class']
-            except KeyError:
-                pass
-
-            #check for exact match
-            db_first_name = student['fields']['First name']
-            db_last_name = student['fields']['Last name']
-            if record.name('first') == db_first_name and record.name('last') == db_last_name:
-                record.match_type = 'exact'
-            print(f"Found {record.get('match_type')} match for student {record.name()}")
-            break
-    print(f"No matches found by Zeraki Number {record.get('zeraki_num')} - {record.name()}.")
-    return record
-
-def find_match_by_name(record:ImportRecord, students:List[RecordDict]) -> ImportRecord:
-    match_outcome_list = []
-    for student in students:
-        match_type = 'no match'
-        db_first_name = student['fields']['First name'].upper()
-        db_last_name = student['fields']['Last name'].upper()
-        if record.name('first') == db_first_name and record.name('last') == db_last_name:
-            match_type = 'full name'
-        elif record.name('last') == db_last_name:
-            match_type = 'last name'
-        elif record.name('first') == db_first_name:
-            match_type = 'first name'
-        else:
-            db_name_list = db_first_name.split(' ')+db_last_name.split(' ')
-            csv_name_list = record.name().split(' ')
-            common_names = [item for item in db_name_list if item in csv_name_list]
-            if len(common_names)> 0:
-                match_type = 'common name'
-        try:
-            match_outcome_list.append((student,match_type,f"AT ID: {student['fields']['ID']}: First name: {db_first_name} Last name: {db_last_name}"))
-        except UnboundLocalError: #if match_type isn't set, it's not a match so skip to the next student
-           continue
-        
-    
-    for match_type in ['full name','last name','first name','common name','no match']:
-        match_options = [m[2] for m in match_outcome_list if m[1] == match_type]
-        if len(match_options) > 0:
-            if match_type == 'no match':
-                print(f"The following Airtable records have no names in common with {record.name()}. However, please select if any of these is a correct match for this student:")
-            else:
-                print(f"The following Airtable records have a {match_type} that matches student {record.name()}. Please select which one is a correct match for this student:")
-            match_options.append('None of these are a match')
-            selected_record_text = user_selection(match_options,quit_allowed=True)
-            if selected_record_text == 'quit':
-                return 'quit'
-            selected_record_list = [m for m in match_outcome_list if selected_record_text == m[2]]
-            if len(selected_record_list) > 1:
-                raise DuplicateRecordError
-            elif len(selected_record_list) == 1:
-                record.matched_record = selected_record_list[0][0]
-                record.at_id = record.matched_record['fields']['ID']
-                record.match_type = match_type
-                try:
-                    record.grad_year = student['fields']['Grad Class']
-                except KeyError:
-                    pass
-                #print(f"Match found by {match_type} for student {str(record)}")
-                return record
-    print(f"No matches found by name for student for student {record.name()}.")
-    return record
-
-def convert_numeric_values(table:Table,field_dict:dict):
-    for key,val in field_dict.items():
-        field = table.schema().field(key)
-        if field.type  == 'number':
-            field_dict[key] = int(val)
-
-    return field_dict
-
-def check_field_errors(input:dict,output:dict) -> True:
-    errors = []
-    for key in output['fields'].keys():
-        if input[key] != output['fields'][key]:
-            errors.append(key)
-    if len(errors) > 0:
-        err_str = ", ".join(errors)
-        print(f"The following fields for Student ID {output['fields']['ID']} could not be updated: {err_str}")
-        return True
-    else:
-        return False
-
-def update_student(student_record:RecordDict,fields_to_update:dict,students_table:Table) -> bool:
-    at_record_id = student_record['id']
-
-    fields_to_update = convert_numeric_values(students_table,fields_to_update)
-    try:
-        updated_student = students_table.update(at_record_id,fields_to_update)
-        # if check_field_errors(fields_to_update,updated_student):
-        #     return False
-        print(f"Successfully updated Student ID {student_record['fields']['ID']} with {str(fields_to_update)}")
-        return True
-    except:
-        print(f"Unable to update Student ID {student_record['fields']['ID']} with {str(fields_to_update)}")
-        return False
-
-def import_student(student_dict:dict,students_table) -> bool:
-    student_dict = convert_numeric_values(students_table,students_table)
-    try:
-        created_student = students_table.create(student_dict)
-        print(f"Successfully created Student ID {created_student['fields']['ID']} with Student details: {str(student_dict)}")
-        check_field_errors(student_dict,created_student)
-        return True
-    except Exception:
-        print(f"Unable to create Student with Student details: ")
-        print_dict(student_dict)
-        return False
-
-def get_next_at_student_id(grad_year:str,students:List[RecordDict]) -> int:
-    try:
-        max_id = max(student['fields']['ID'] for student in students)
-        next_id = max_id+1
-    except:
-        max_id = 0
-    if max_id == 0 or max_id == '' or max_id == 'None':
-        next_id = (int(grad_year)-2000)*100
-    return next_id
 
 # Grades functions
 def import_grades():
