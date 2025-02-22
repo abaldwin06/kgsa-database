@@ -3,11 +3,15 @@ import csv
 from typing import List, Tuple, Optional, TextIO, Literal
 from pyairtable import Api, formulas, Table, Base
 from pyairtable.api.types import RecordDict
-from pyairtable.models.schema import FieldSchema
+from pyairtable.models.schema import FieldSchema, TableSchema
 import argparse
 import json
+from datetime import datetime
 
 class DuplicateRecordError(Exception):
+    pass
+
+class UserQuitOut(Exception):
     pass
 
 class ImportRecord:
@@ -115,9 +119,9 @@ def user_selection(options_list:List[str],quit_allowed:bool=True) -> str:
     # Get user input
     while True:
         user_choice = input("Enter the number of your choice: ").strip().lower()
-        if user_choice in ['q','quit'] and quit_allowed == True:
+        if user_quitting(user_choice) and quit_allowed == True:
             print("Quitting the program.")
-            return 'quit'
+            raise UserQuitOut
         else:
             try:
                 user_choice_int = int(user_choice)
@@ -168,14 +172,12 @@ def select_file() -> Optional[TextIO]:
 
     # Display the files with an index number
     print("Please choose a file to import:")
-    selected_file_name = user_selection(files)
-    if selected_file_name == 'quit':
-            return None
-    else:
-        # Full path of the selected file
-        selected_file_path = os.path.join(folder_name, selected_file_name)
-        selected_file = open(selected_file_path,mode="r",newline='')
-        return selected_file
+    selected_file_name = user_selection(files) #could raise UserQuitOut
+
+    # Full path of the selected file
+    selected_file_path = os.path.join(folder_name, selected_file_name)
+    selected_file = open(selected_file_path,mode="r",newline='')
+    return selected_file
 
 def print_dict(d:dict):
     print(json.dumps(d, indent=4))
@@ -222,6 +224,25 @@ def compare_students(csv_data:dict,db_data:dict):
     
     print("")
     return keys_to_update
+
+def user_quitting(input:str):
+    if isinstance(input,str) and input.upper() in ['Q','QUIT','EXIT','OPT','STOP']:
+        return True
+    else:
+        return False
+
+def get_date_from_user():
+    while True:
+        user_input = input("Enter a date (YYYY-MM-DD): ")
+        try:
+            date_obj = datetime.strptime(user_input, "%Y-%m-%d").date()
+            return date_obj.strftime("%Y-%m-%d")  # Return as a formatted string
+        except ValueError:
+            if user_quitting(user_input):
+                print("Quitting Program...")
+                raise UserQuitOut
+            else:
+                print("Invalid format. Please enter a valid date in YYYY-MM-DD format.")
 
 # CSV Processing Functions
 def parse_csv(file:TextIO) -> Optional[List[List[str]]]:
@@ -271,18 +292,23 @@ def get_field_options(field:FieldSchema) -> List[str]:
         return_list.append(val.name)
     return return_list
 
+def get_field_from_table(table_schema,field_id):
+    matched_fields = [field for field in table_schema.fields if field.id == field_id] 
+    if len(matched_fields) == 0:
+        raise ValueError(f'No field by the id of {field_id} in table {table_schema.name}')
+    else:
+        return matched_fields[0]
+
 # Student functions
 def get_students_from_grad_year(fields:List[str],students_table:Table) -> Optional[Tuple[List[RecordDict],str]]:
     grad_yr_field = students_table.schema().field('Grad Class')
     grad_yr_options = get_field_options(grad_yr_field)
     print('Please select the graduating class year for the students you are importing:')
-    selected_grad_yr = user_selection(grad_yr_options)
-    if selected_grad_yr == 'quit':
-        return None
-    else:
-        formula = formulas.match({'Grad Class': selected_grad_yr})
-        records = students_table.all(fields=fields, formula=formula)
-        return (records, selected_grad_yr)
+    selected_grad_yr = user_selection(grad_yr_options) # Could Raise UserQuitOut
+
+    formula = formulas.match({'Grad Class': selected_grad_yr})
+    records = students_table.all(fields=fields, formula=formula)
+    return (records, selected_grad_yr)
 
 def get_next_at_student_id(grad_year:str,students:List[RecordDict]) -> int:
     try:
@@ -390,9 +416,7 @@ def find_match_by_name(record:ImportRecord, students:List[RecordDict]) -> Import
                 print(f"The following Airtable records have a {match_type} that matches student {record.name()}. Please select which one is a correct match for this student:")
             
             #ask user for selection to confirm student match
-            selected_record_text = user_selection(match_options,quit_allowed=True)
-            if selected_record_text == 'quit':
-                return 'quit'
+            selected_record_text = user_selection(match_options,quit_allowed=True) #could raise UserQuitOut
 
             #handle user selection
             selected_record_list = [m for m in match_outcome_list if selected_record_text == m[2]]
@@ -459,6 +483,13 @@ def create_student(student_dict:dict,students_table) -> RecordDict:
         print_dict(student_dict)
         return False
 
+def remind_if_test_mode(test_flag,reminder_before_import:bool=True):
+    if test_flag:
+        if reminder_before_import:
+            print(f"Reminder - importing in Test Mode - no actual import will be completed.")
+        else:
+            print(f"Test mode - no actual import completed".upper())
+
 def import_students(import_data:List[ImportRecord],student_records:List[RecordDict],grad_year:str,students_table:Table,test_flag:bool=True):
     count_total = 0
     count_updated = 0
@@ -479,8 +510,10 @@ Now importing CSV row {import_record.get('csv_row')}...
         import_record = find_match_by_znum(import_record,student_records)
 
         if import_record.match_type == 'no match':
-            import_record = find_match_by_name(import_record,student_records)
-            if import_record =='quit':
+            try:
+                import_record = find_match_by_name(import_record,student_records)
+            except UserQuitOut:
+                print(f"Quitting program...")
                 break
 
         # create NEW STUDENT if no match found    
@@ -489,15 +522,18 @@ Now importing CSV row {import_record.get('csv_row')}...
             print(f"No match was found.")
             print(f"Would you like to create an Airtable record with the following data:")
             print_dict(import_record.return_import_dict())
+            remind_if_test_mode(test_flag)
             print('Please select Y/N:')
-            choice = user_selection(options_list=['Yes','No'],quit_allowed=True)
-            if choice == 'quit':
+            try:
+                choice = user_selection(options_list=['Yes','No'],quit_allowed=True)
+            except UserQuitOut:
                 print(f"Quitting program...")
                 break
             if choice == 'No':
                 print(f"Skipping student...")
                 continue
             student_template = import_record.return_import_dict(at_student_id)
+            remind_if_test_mode(test_flag,False)
             if test_flag == True:
                 import_outcome = True
             else:
@@ -520,20 +556,28 @@ Now importing CSV row {import_record.get('csv_row')}...
             db_fields = db_student['fields']
             keys_to_update = compare_students(csv_fields,db_fields)
             if len(keys_to_update) < 1:
-                print(f"No data to updated on Student Record {db_fields['ID']}, skipping student.")
+                print(f"No data to update on Student Record {db_fields['ID']}, skipping student.")
                 continue
             fields_to_import = {}
 
             # get user input on which fields to update
+            quit=False
             for key in keys_to_update:
                 print(f"Would you like to update the students {key} in Airtable?")
+                remind_if_test_mode(test_flag)
                 print('Please select Y/N:')
-                choice = user_selection(options_list=['Yes','No'])
+                try:
+                    choice = user_selection(options_list=['Yes','No']) #could raise UserQuitOut
+                except UserQuitOut:
+                    quit=True
+                    break
                 if choice == 'No':
                     pass
                 else:
                     fields_to_import[key] = csv_fields[key]
-            
+            if quit:
+                break
+
             # move forward with updating the student record
             if test_flag == True:
                 import_outcome = True
@@ -545,16 +589,40 @@ Now importing CSV row {import_record.get('csv_row')}...
             # else:
             #     print(f"Failed to Update Student with CSV data: {str(fields_to_import)}, skipping student...")
 
-        if test_flag:
-            print(f"Test mode - no actual import completed")
+        remind_if_test_mode(test_flag,False)
+        # if test_flag:
+        #     print(f"Test mode - no actual import completed".upper())
 
     return count_total, count_created, count_updated
 
 # Grades functions
-def import_grades():
-    # TODO get input from user about grade type
+def import_grades(selected_file,grad_year,test_type,form,test_date,selected_students):
+    # TODO replace this print out with the actual importing of the grades
+    print(f"User will be importing {test_type} scores from {test_date} which were taken by the {grad_year} grad year when they were in {form}")
     print("Grade imports not yet supported, quitting program.")
     return False
+
+def get_grade_import_details(scores_schema:TableSchema) -> Optional[Tuple[str]]:
+    # column IDs for Test Scores Table
+    test_date_col = get_field_from_table(scores_schema,'fldYmomAHoRF6mQUQ') #Name of AT Column: Date of Score
+    form_col = get_field_from_table(scores_schema,'fldf2lj8I78aQnUoh') #Name of AT Column: Form
+    test_type_col= get_field_from_table(scores_schema,'fldzfmDP86VoOPPb4') #Name of AT Column: Score Type
+
+    # get score type
+    print('What type of test scores are in the file to be imported?')
+    test_type = user_selection(get_field_options(test_type_col),True) #Could raise UserQuitOut
+
+    # get which form the student was in
+    if test_type == 'KCSE':
+        form = "Form 4"
+    else:
+        print('This exam was taken while the students were in what form?')
+        form = user_selection(get_field_options(form_col),True)  #Could raise UserQuitOut
+
+    print('On what date was this exam taken?')
+    test_date_str = get_date_from_user()  #Could raise UserQuitOut
+    
+    return test_type,form,test_date_str
 
 def main_import(test=True):
     """Main program that calls user input functions and import functions
@@ -566,15 +634,17 @@ def main_import(test=True):
 
     # DETERMINE TYPE OF IMPORT
     print("Please choose what type of data you are importing from Zeraki:")
-    import_type_options = ['Students and KCPEs','Term Grades']
-    import_type = user_selection(import_type_options)
-    #import_type = select_import_type()
-    if import_type == 'quit':
+    import_type_options = ['Students and KCPEs','Grades']
+    try:
+        import_type = user_selection(import_type_options,True)
+    except UserQuitOut:
         return False
-    elif import_type in import_type_options:
+
+    if import_type in import_type_options:
         # Select CSV to import
-        selected_file = select_file()
-        if selected_file == None:
+        try:
+            selected_file = select_file()
+        except UserQuitOut:
             return False
 
         # PARSE CSV IMPORT DATA
@@ -585,25 +655,45 @@ def main_import(test=True):
         # Connect to Airtable Table: Students
         b = initialize_airtable()
         students_table = b.table('Students')
+
+        # limit the fields to match on and edit in the students table
+        student_import_fields = ['ID','First name','Last name','Grad Class','Zeraki ADM No','KCPE Score']
+        
+        # limit the records returned by grad year
+        try:
+            student_records, grad_year= get_students_from_grad_year(student_import_fields,students_table)
+        except UserQuitOut:
+            return False
+
+        # import student details
         if import_type == import_type_options[0]:
-            # limit the fields returned
-            student_import_fields = ['ID','First name','Last name','Grad Class','Zeraki ADM No','KCPE Score']
-            # limit the records returned by grad year
-            filtered_students = get_students_from_grad_year(student_import_fields,students_table)
-            if filtered_students == None:
-                return False
-            else:
-                student_records, grad_year = filtered_students
 
             # IMPORT STUDENT DATA
-            #import data and print outcome
+            #import data and print outcome, if user quits out mid-import the summary statement will still show and the students up to that point will have been updated
             total, created, updated = import_students(import_list,student_records,grad_year,students_table,test)
             print(f"Out of {total} total CSV students, {created} new student records were created and {updated} student records were updated.")
             return True
 
+        # import test score details
         elif import_type == import_type_options[1]:
-            print('Grades import not supported yet, quitting program.')
-            return False
+            
+            # get test scores table
+            grades_table = b.table('Test Scores')
+            scores_schema = grades_table.schema()
+
+            # Ask user for test type, test date and which form the student was in when test was taken
+            try:
+                test_type, form, test_date = get_grade_import_details(scores_schema)
+            except UserQuitOut:
+                return False
+
+            # map columns of csv to test subjects
+            #TODO - Create check_columns() function
+            #check_subject_columns()
+
+            # import the grades
+            import_grades(selected_file,grad_year,test_type,form,test_date,student_import_fields)
+            return True
         else:
             print("Invalid import type, shouldn't ever get to this code, quitting program.")
             return False
