@@ -17,8 +17,10 @@ class UserQuitOut(Exception):
 class ImportRecord:
     # properties:
     # csv_row, zeraki_num, zeraki_name, kcpe, first_name, last_name, at_id, match_type, matched_record, at_edit type
+    # TODO pass in test type, date, form etc for storage of grades to import
     def __init__(self,row:List,headers:List,csv_row_num:int) -> bool:
         self.csv_row = csv_row_num
+        self.grades = []
         for idx,header in enumerate(headers):
             if header == 'ADMNO':
                 self.zeraki_num = row[idx]
@@ -30,6 +32,22 @@ class ImportRecord:
                     self.kcpe = int(row[idx])
                 except ValueError:
                     pass
+            elif header == 'TT PTS':
+                try:
+                    self.add_grade('Overall',int(row[idx]))
+                except ValueError:
+                    pass
+            elif header == 'GR':
+                self.add_grade('Overall',str(row[idx]))
+            elif header in ['ENG','KIS','MAT','BIO','PHY','CHE','HIS','GEO','CRE','IRE','BST']:
+                self.add_grade(header,str(row[idx]))
+    
+    def add_grade(self,subj:str,grade):
+        if subj == 'Overall':
+            #TODO need to change this to check for STR and INT grades and put both in same record
+            self.grades.append(grade)
+        else:
+            self.grades.append({subj:grade})
 
     def get(self,prop_name:str):
         val = getattr(self, prop_name, None)
@@ -97,7 +115,16 @@ class ImportRecord:
             self.first_name = names[0]
             self.last_name = " ".join(names[1:])
             #print(f"Row {self.csv_row}: First name: {self.first_name}, Last name: {self.last_name}.")
+    
+    def print_grades(self):
+        #TODO add function to print out any grades stored and ready to import
+        pass
 
+    def return_grades_import_list(self):
+        #TODO add a function to create an array of grade records to create and import
+        pass
+
+    #TODO maybe rename this one so that it's clear it's an import dictionary for student data
     def return_import_dict(self,at_id=None):
         import_dict = {}
         if self.get('at_id'):
@@ -473,6 +500,7 @@ def update_student(student_record:RecordDict,fields_to_update:dict,students_tabl
         return True
 
 def create_student(student_dict:dict,students_table) -> RecordDict:
+    #TODO check if this is working (should the parameters be dict and table?)
     student_dict = convert_numeric_values(students_table,students_table)
     try:
         created_student = students_table.create(student_dict)
@@ -495,7 +523,7 @@ def import_students(import_data:List[ImportRecord],student_records:List[RecordDi
     count_updated = 0
     count_created = 0
 
-    # Get next available airtable ID for the relevant student records
+    # Get next available airtable ID for the relevant student records - in case a new record is needed
     at_student_id = get_next_at_student_id(grad_year,student_records)
 
     # loop through Import Records
@@ -506,9 +534,10 @@ Now importing CSV row {import_record.get('csv_row')}...
         """)
         import_outcome = None
 
-        # find if student already exists
+        # match to existing student by ZNum
         import_record = find_match_by_znum(import_record,student_records)
 
+        # match to existing student by Name
         if import_record.match_type == 'no match':
             try:
                 import_record = find_match_by_name(import_record,student_records)
@@ -596,10 +625,32 @@ Now importing CSV row {import_record.get('csv_row')}...
     return count_total, count_created, count_updated
 
 # Grades functions
-def import_grades(selected_file,grad_year,test_type,form,test_date,selected_students):
-    # TODO replace this print out with the actual importing of the grades
+def import_grades(import_data:List[ImportRecord],student_records:List[RecordDict],grad_year:str,test_type:str,form:str,test_date:str,b:Base):
+    #,,grad_year:str,students_table:Table,test_flag:bool=True
     print(f"User will be importing {test_type} scores from {test_date} which were taken by the {grad_year} grad year when they were in {form}")
+    
+    # TODO replace this print out with the actual importing of the grades
     print("Grade imports not yet supported, quitting program.")
+
+    # TODO 
+    # keep track of number of student records updated, grades created
+    count_total_students = 0
+    count_updated_students = 0
+    count_created_students = 0
+    count_imported_grades = 0
+
+    # Get next available airtable ID for the relevant student records - in case a new record is needed
+    at_student_id = get_next_at_student_id(grad_year,student_records)
+
+    # TODO
+    # Create something that checks for a duplicate record
+    # Connect to Airtable Table: Students
+    b = initialize_airtable()
+    students_table = b.table('Students')
+    # get test scores table
+    grades_table = b.table('Test Scores')
+    scores_schema = grades_table.schema()
+
     return False
 
 def get_grade_import_details(scores_schema:TableSchema) -> Optional[Tuple[str]]:
@@ -687,12 +738,8 @@ def main_import(test=True):
             except UserQuitOut:
                 return False
 
-            # map columns of csv to test subjects
-            #TODO - Create check_columns() function
-            #check_subject_columns()
-
             # import the grades
-            import_grades(selected_file,grad_year,test_type,form,test_date,student_import_fields)
+            import_grades(import_list,student_records,grad_year,test_type,form,test_date)
             return True
         else:
             print("Invalid import type, shouldn't ever get to this code, quitting program.")
