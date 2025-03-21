@@ -45,26 +45,28 @@ Import can create new student records, match to existing records using zeraki ID
 3. Data will file to JSON files in `.export/` subdirectory.
 
 # TODO 
-[x] update zeraki headers check to go by header name
-[x] match based on name
-[x] have a test mode (where edits aren't made to the db)
-[x] able to update item by item (do you want to update zeraki num? kcpe? name?)
-[x] fix check for field errors function
-[x] fix how it says it was unsuccessful at updating but it actually was (and this messes up the count)
-[x] have a setting for always considering full name matches a match (no user input) - this is default now
-[x] import zeraki nums for 2023, 2022, 2021?
-[X] allow for selecting a type of grade and date of grades (term one, term two)
----
-[ ] #TODO fix "add_grade" function to work for both numeric/string scores
-[ ] #TODO add function to ImportRecord to print out any grades stored and ready to import and test
-[ ] #TODO pass in test type, date, form etc into importrecord init function for storage of grades to import
-[ ] pdate import_grades to match on a student by znum or full name (no kcpe or name changes)
-[ ] update import_grades to do a printout of the above
-[ ] #TODO add a function to ImportRecord to return an array of grade records in Airtable format, update record_dict function to work for students and grades
-[ ] able to create a new test scores row for each grade and link it to the right student
-[ ] #TODO test any issues with the convert integer and string values function
-[ ] Add a function to store Zeraki name to DB so we stop asking for name matches OR add a way to opt out of name changes in both import types
-[ ] fix bug with matching by last name:
-      File "/Users/annebaldwin/Documents/projects/kgsa-database/app.py", line 374, in find_match_by_name
-        db_last_name = student['fields']['Last name'].upper()
-      To recreate, remove the zeraki num from AT for a student that matches by last name (Anne Achieng Juma 2024) and try to import students
+
+- [ ] fix "add_grade" function to work for both numeric/string scores
+- [ ] add function to ImportRecord to print out any grades stored and ready to import and test
+- [ ] pass in test type, date, form etc into importrecord init function for storage of grades to import
+- [ ] pdate import_grades to match on a student by znum or full name (no kcpe or name changes)
+- [ ] update import_grades to do a printout of the above
+- [ ] add a function to ImportRecord to return an array of grade records in Airtable format, update record_dict function to work for students and grades
+- [ ] able to create a new test scores row for each grade and link it to the right student
+- [ ] test any issues with the convert integer and string values function
+- [ ] Add a function to store Zeraki name to DB so we stop asking for name matches OR add a way to opt out of name changes in both import types
+- [ ] fix bug with matching by last name:
+    >    File "/Users/annebaldwin/Documents/projects/kgsa-database/app.py", line 374, in find_match_by_name
+    >         db_last_name = student['fields']['Last name'].upper()
+    >    To recreate, remove the zeraki num from AT for a student that matches by last name (Anne Achieng Juma 2024) and try to import students
+
+Things completed:
+- [x] update zeraki headers check to go by header name
+- [x] match based on name
+- [x] have a test mode (where edits aren't made to the db)
+- [x] able to update item by item (do you want to update zeraki num? kcpe? name?)
+- [x] fix check for field errors function
+- [x] fix how it says it was unsuccessful at updating but it actually was (and this messes up the count)
+- [x] have a setting for always considering full name matches a match (no user input) - this is default now
+- [x] import zeraki nums for 2023, 2022, 2021?
+- [x] allow for selecting a type of grade and date of grades (term one, term two)
