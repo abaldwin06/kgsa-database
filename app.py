@@ -17,15 +17,16 @@ class UserQuitOut(Exception):
 class ImportRecord:
     # properties:
     # csv_row, zeraki_num, zeraki_name, kcpe, first_name, last_name, at_id, match_type, matched_record, at_edit type
-    # TODO pass in test type, date, form etc for storage of grades to import
+    # grades array of structs with {subj: 'HIS', str: 'B',num: 80}, test_type, test_date, form 
     def __init__(self,row:List,headers:List,csv_row_num:int) -> bool:
         self.csv_row = csv_row_num
         self.grades = []
+        self.grades.append({'subj':'Overall', 'str': None, 'num': None})
         for idx,header in enumerate(headers):
             if header == 'ADMNO':
-                self.zeraki_num = row[idx]
+                self.zeraki_num = int(row[idx])
             elif header == 'NAME':
-                self.zeraki_name = row[idx].upper()
+                self.zeraki_name = row[idx].upper().strip()
                 self.parse_names()
             elif header == 'KCPE':
                 try:
@@ -34,20 +35,97 @@ class ImportRecord:
                     pass
             elif header == 'TT PTS':
                 try:
-                    self.add_grade('Overall',int(row[idx]))
+                    self.grades[0]['num'] = int(row[idx])
                 except ValueError:
+                    print(f"numeric grade expected for TT PTS")
+                    pass
+                except (IndexError,KeyError):
+                    print(f"corrupt grades property in import record for znum {self.get('zeraki_num')}")
                     pass
             elif header == 'GR':
-                self.add_grade('Overall',str(row[idx]))
+                try:
+                    self.grades[0]['str'] = str(row[idx])
+                except ValueError:
+                    print(f"string grade expected for GR")
+                    pass
+                except (IndexError,KeyError):
+                    print(f"corrupt grades property in import record for znum {self.get('zeraki_num')}")
+                    pass
             elif header in ['ENG','KIS','MAT','BIO','PHY','CHE','HIS','GEO','CRE','IRE','BST']:
                 self.add_grade(header,str(row[idx]))
-    
-    def add_grade(self,subj:str,grade):
-        if subj == 'Overall':
-            #TODO need to change this to check for STR and INT grades and put both in same record
-            self.grades.append(grade)
+
+    def match_to_at_student(self,students:List[RecordDict],verbose:bool=False):
+        # MATCH BY ZERAKI NUM
+        # if student not already matched
+        if self.get('at_id') == None:
+            self.match_type = 'no match'
+            
+            # search airtable data for matching zeraki num, grad class, name
+            for student in students:
+                try:
+                    at_znum = int(student['fields']['Zeraki ADM No'])
+                except (KeyError, ValueError):
+                    # no zeraki num or invalid num in db so continue to next student
+                    continue
+                
+                if self.get("zeraki_num") == at_znum:
+                    self.at_id = student['fields']['ID']
+                    self.match_type = 'adm no'
+                    self.matched_record = student
+                    try:
+                        self.grad_year = student['fields']['Grad Class']
+                    except KeyError:
+                        pass
+
+                    #check for exact match
+                    db_first_name = student['fields']['First name']
+                    db_last_name = student['fields']['Last name']
+                    db_first_name = db_first_name.upper().strip()
+                    db_last_name = db_last_name.upper().strip()
+                    if self.name('first') == db_first_name and self.name('last') == db_last_name:
+                        self.match_type = 'exact'
+                        if verbose:
+                            print(f"Found exact match by Zeraki Num {self.zeraki_num} and Name for Student ID {self.at_id} - {self.name()}.")
+                            print("")
+                        return self.at_id
+                    else:
+                        if verbose:
+                            print(f"Found match by Zeraki Num {self.zeraki_num} to Student ID {self.at_id} - {db_first_name} {db_last_name}.")
+                            print("")   
+                        return True
+            if verbose:
+                print(f"No matches found by Zeraki Number {self.zeraki_num} - {self.name()}.")
+                print("")
+            # MATCH BY NAME AS FALLBACK
+            return False
         else:
-            self.grades.append({subj:grade})
+            return self.get('at_id')
+
+    def add_grade(self,subj:str,csv_grade:str):
+        if (subj not in ('TT PTS','GR')) and csv_grade != "":
+            grade_num = None
+            grade_str = None
+            grade_vals = csv_grade.split(" ")
+            for grade in grade_vals:
+                try:
+                    grade_num = int(grade)
+                except:
+                    grade_str = grade
+            if grade_num == None or grade_str == None:
+                print(f"CSV row {self.csv_row} student {self.zeraki_name} has {subj} grades int: {grade_num} and str: {grade_str}")
+            else:
+                self.grades.append({
+                                    'subj':subj,
+                                    'str':grade_str,
+                                    'num':grade_num
+                                    })
+
+    def add_test_type(self,test_type:str,form:str,test_date_str:str,grad_year:str):
+        self.test_type = test_type #user input should have already validated test type matches Airtable vals
+        self.form = form #user input should have already validated form value matches Airtable vals
+        self.grad_year = grad_year #user input should have already validated grad year matches Airtable vals
+        self.test_date = test_date_str #need to reformat for import to airtable
+        return True
 
     def get(self,prop_name:str):
         val = getattr(self, prop_name, None)
@@ -81,17 +159,17 @@ class ImportRecord:
         text=''
         try:
             text = text + f"""
-            Zeraki ADM No: """ + self.get('zeraki_num')
+            Zeraki ADM No: {self.get('zeraki_num')}"""
         except TypeError:
             pass
         try:
             text = text + f"""
-            Matched by """+self.get('match_type')+" to Airtable ID: " + self.get('at_id')
+            Matched by {self.get('match_type')} to Airtable ID: {self.get('at_id')}"""
         except TypeError:
             pass
         try:
             text = text + f"""
-            Student: """ + self.name()
+            Student: {self.name()} from {self.grad_year}"""
         except TypeError:
             #shouldn't happen
             pass
@@ -100,11 +178,16 @@ class ImportRecord:
             KCPE score: """+ str(self.get('kcpe'))
         except TypeError:
             pass
+        try:
+            text = text + f"""
+            Student has {len(self.grades) - 1} grades from {self.test_date} - {self.form} {self.test_type} """
+        except:
+            pass
         return text
 
     def parse_names(self):
         try:
-            names = self.get('zeraki_name').split(' ')
+            names = self.get('zeraki_name').upper().split(' ')
         except TypeError:
             print(f"Row {self.get('csv_row')}: Error splitting Student Name, no Zeraki Name present, skipping student.")
             return
@@ -112,20 +195,19 @@ class ImportRecord:
         if name_count < 2:
             print(f"Row {self.get('csv_row')}: Error splitting Student Name, unexpected number of names: {self.get('zeraki_name')}.")
         else:
-            self.first_name = names[0]
-            self.last_name = " ".join(names[1:])
+            self.first_name = names[0].strip().upper()
+            self.last_name = " ".join(names[1:]).strip().upper()
             #print(f"Row {self.csv_row}: First name: {self.first_name}, Last name: {self.last_name}.")
     
     def print_grades(self):
-        #TODO add function to print out any grades stored and ready to import
-        pass
+        for grade in self.grades:
+            print(f"{grade['subj']}: {grade['str']} {grade['num']}")
 
     def return_grades_import_list(self):
         #TODO add a function to create an array of grade records to create and import
         pass
 
-    #TODO maybe rename this one so that it's clear it's an import dictionary for student data
-    def return_import_dict(self,at_id=None):
+    def return_student_import_dict(self,at_id=None):
         import_dict = {}
         if self.get('at_id'):
             import_dict['ID'] = self.get('at_id')
@@ -347,55 +429,12 @@ def get_next_at_student_id(grad_year:str,students:List[RecordDict]) -> int:
         next_id = (int(grad_year)-2000)*100
     return next_id
 
-def find_match_by_znum(record:ImportRecord, students:List[RecordDict]) -> ImportRecord:
-    record.match_type = 'no match'
-    #check for znum match
-    try:
-        input_znum = int(record.get('zeraki_num'))
-    except ValueError:
-        # invalid zeraki num in import
-        print(f"Zeraki number in import csv should be a numeric value. No match possible by Zeraki Num.")
-        return record
-
-    # search airtable data for matching zeraki num, grad class, name
-    for student in students:
-        try:
-            at_znum = int(student['fields']['Zeraki ADM No'])
-        except (KeyError, ValueError):
-            # no zeraki num or invalid num in db so continue to next student
-            continue
-        
-        if input_znum == at_znum:
-            record.at_id = student['fields']['ID']
-            record.match_type = 'adm no'
-            record.matched_record = student
-            try:
-                record.grad_year = student['fields']['Grad Class']
-            except KeyError:
-                pass
-
-            #check for exact match
-            db_first_name = student['fields']['First name']
-            db_last_name = student['fields']['Last name']
-            if record.name('first') == db_first_name and record.name('last') == db_last_name:
-                record.match_type = 'exact'
-                print(f"Found exact match by Zeraki Num {input_znum} and Name for Student ID {record.at_id} - {record.name()}.")
-                print("")
-                return record
-            else:
-                print(f"Found match by Zeraki Num {input_znum} to Student ID {record.at_id} - {db_first_name} {db_last_name}.")
-                print("")
-                return record
-    print(f"No matches found by Zeraki Number {input_znum} - {record.name()}.")
-    print("")
-    return record
-
 def find_match_by_name(record:ImportRecord, students:List[RecordDict]) -> ImportRecord:
     match_outcome_list = []
     for student in students:
         match_type = 'no match'
-        db_first_name = student['fields']['First name'].upper()
-        db_last_name = student['fields']['Last name'].upper()
+        db_first_name = student['fields']['First name'].upper().strip()
+        db_last_name = student['fields']['Last name'].upper().strip()
 
         # Automatically match and return full name matches
         if record.name('first') == db_first_name and record.name('last') == db_last_name:
@@ -535,7 +574,7 @@ Now importing CSV row {import_record.get('csv_row')}...
         import_outcome = None
 
         # match to existing student by ZNum
-        import_record = find_match_by_znum(import_record,student_records)
+        import_record.match_to_at_student(student_records)
 
         # match to existing student by Name
         if import_record.match_type == 'no match':
@@ -550,7 +589,7 @@ Now importing CSV row {import_record.get('csv_row')}...
             print(f"")
             print(f"No match was found.")
             print(f"Would you like to create an Airtable record with the following data:")
-            print_dict(import_record.return_import_dict())
+            print_dict(import_record.return_student_import_dict())
             remind_if_test_mode(test_flag)
             print('Please select Y/N:')
             try:
@@ -561,7 +600,7 @@ Now importing CSV row {import_record.get('csv_row')}...
             if choice == 'No':
                 print(f"Skipping student...")
                 continue
-            student_template = import_record.return_import_dict(at_student_id)
+            student_template = import_record.return_student_import_dict(at_student_id)
             remind_if_test_mode(test_flag,False)
             if test_flag == True:
                 import_outcome = True
@@ -580,7 +619,7 @@ Now importing CSV row {import_record.get('csv_row')}...
 
         # optionally UPDATE STUDENT if partial match
         else:
-            csv_fields = import_record.return_import_dict()
+            csv_fields = import_record.return_student_import_dict()
             db_student = import_record.matched_record
             db_fields = db_student['fields']
             keys_to_update = compare_students(csv_fields,db_fields)
@@ -625,13 +664,8 @@ Now importing CSV row {import_record.get('csv_row')}...
     return count_total, count_created, count_updated
 
 # Grades functions
-def import_grades(import_data:List[ImportRecord],student_records:List[RecordDict],grad_year:str,test_type:str,form:str,test_date:str,b:Base):
-    #,,grad_year:str,students_table:Table,test_flag:bool=True
-    print(f"User will be importing {test_type} scores from {test_date} which were taken by the {grad_year} grad year when they were in {form}")
+def import_grades(import_data:List[ImportRecord],student_records:List[RecordDict],stu_tbl:Table,grd_tbl:Table,grd_sch:TableSchema):
     
-    # TODO replace this print out with the actual importing of the grades
-    print("Grade imports not yet supported, quitting program.")
-
     # TODO 
     # keep track of number of student records updated, grades created
     count_total_students = 0
@@ -639,21 +673,30 @@ def import_grades(import_data:List[ImportRecord],student_records:List[RecordDict
     count_created_students = 0
     count_imported_grades = 0
 
-    # Get next available airtable ID for the relevant student records - in case a new record is needed
-    at_student_id = get_next_at_student_id(grad_year,student_records)
+    # TODO
+    # Loop through import data
+    for import_rec in import_data:
+        import_rec.match_to_at_student(student_records)
+        if import_rec.get('at_id') == None:
+            print(f"No airtable record found for student {import_rec.name()}. Skipping...")
+            continue
+        print(import_rec)
+        import_rec.print_grades()
 
     # TODO
-    # Create something that checks for a duplicate record
-    # Connect to Airtable Table: Students
-    b = initialize_airtable()
-    students_table = b.table('Students')
-    # get test scores table
-    grades_table = b.table('Test Scores')
-    scores_schema = grades_table.schema()
+    # Identify matching student or create student
+    # Get next available airtable ID for the relevant student records - in case a new record is needed
+    #at_student_id = get_next_at_student_id(grad_year,student_records)
+
+    # TODO
+    # Check for a duplicate grade record
+
+    # TODO replace this print out with the actual importing of the grades
+    print("Grade imports not yet supported, quitting program.")
 
     return False
 
-def get_grade_import_details(scores_schema:TableSchema) -> Optional[Tuple[str]]:
+def get_grade_import_details(scores_schema:TableSchema, import_list:List[ImportRecord], grad_year:str) -> Optional[Tuple[str]]:
     # column IDs for Test Scores Table
     test_date_col = get_field_from_table(scores_schema,'fldYmomAHoRF6mQUQ') #Name of AT Column: Date of Score
     form_col = get_field_from_table(scores_schema,'fldf2lj8I78aQnUoh') #Name of AT Column: Form
@@ -673,7 +716,10 @@ def get_grade_import_details(scores_schema:TableSchema) -> Optional[Tuple[str]]:
     print('On what date was this exam taken?')
     test_date_str = get_date_from_user()  #Could raise UserQuitOut
     
-    return test_type,form,test_date_str
+    for rec in import_list:
+        rec.add_test_type(test_type,form,test_date_str,grad_year)
+
+    return import_list
 
 def main_import(test=True):
     """Main program that calls user input functions and import functions
@@ -733,13 +779,15 @@ def main_import(test=True):
             scores_schema = grades_table.schema()
 
             # Ask user for test type, test date and which form the student was in when test was taken
+            # Update import list of records with these details
             try:
-                test_type, form, test_date = get_grade_import_details(scores_schema)
+                import_list = get_grade_import_details(scores_schema,import_list,grad_year)
             except UserQuitOut:
                 return False
 
             # import the grades
-            import_grades(import_list,student_records,grad_year,test_type,form,test_date)
+            print(f"User will be importing {import_list[0].get('test_type')} scores from {import_list[0].get('test_date')} which were taken by the {grad_year} grad year when they were in {import_list[0].get('form')}")
+            import_grades(import_list,student_records,students_table,grades_table,scores_schema)
             return True
         else:
             print("Invalid import type, shouldn't ever get to this code, quitting program.")

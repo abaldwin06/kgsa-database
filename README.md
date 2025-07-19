@@ -45,12 +45,6 @@ Import can create new student records, match to existing records using zeraki ID
 3. Data will file to JSON files in `.export/` subdirectory.
 
 # TODO 
-
-- [ ] fix "add_grade" function to work for both numeric/string scores
-- [ ] add function to ImportRecord to print out any grades stored and ready to import and test
-- [ ] pass in test type, date, form etc into importrecord init function for storage of grades to import
-- [ ] pdate import_grades to match on a student by znum or full name (no kcpe or name changes)
-- [ ] update import_grades to do a printout of the above
 - [ ] add a function to ImportRecord to return an array of grade records in Airtable format, update record_dict function to work for students and grades
 - [ ] able to create a new test scores row for each grade and link it to the right student
 - [ ] test any issues with the convert integer and string values function
@@ -61,6 +55,11 @@ Import can create new student records, match to existing records using zeraki ID
     >    To recreate, remove the zeraki num from AT for a student that matches by last name (Anne Achieng Juma 2024) and try to import students
 
 Things completed:
+- [X] fix "add_grade" function to work for both numeric/string scores
+- [X] add function to ImportRecord to print out any grades stored and ready to import and test
+- [X] pass in test type, date, form etc into importrecord init function for storage of grades to import
+- [X] update import_grades to match on a student by znum or full name (no kcpe or name changes)
+- [X] update import_grades to do a printout of the above
 - [x] update zeraki headers check to go by header name
 - [x] match based on name
 - [x] have a test mode (where edits aren't made to the db)
