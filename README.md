@@ -45,9 +45,7 @@ Import can create new student records, match to existing records using zeraki ID
 3. Data will file to JSON files in `.export/` subdirectory.
 
 # TODO 
-- [ ] add a function to ImportRecord to return an array of grade records in Airtable format, update record_dict function to work for students and grades
-- [ ] able to create a new test scores row for each grade and link it to the right student
-- [ ] test any issues with the convert integer and string values function
+- [ ] test any issues with the convert integer and string values function (convert_numeric_values function)
 - [ ] Add a function to store Zeraki name to DB so we stop asking for name matches OR add a way to opt out of name changes in both import types
 - [ ] fix bug with matching by last name:
     >    File "/Users/annebaldwin/Documents/projects/kgsa-database/app.py", line 374, in find_match_by_name
@@ -55,6 +53,9 @@ Import can create new student records, match to existing records using zeraki ID
     >    To recreate, remove the zeraki num from AT for a student that matches by last name (Anne Achieng Juma 2024) and try to import students
 
 Things completed:
+- [X] add a function to ImportRecord to return an array of grade records in Airtable format, update record_dict function to work for students and grades
+- [X] able to create a new test scores row for each grade and link it to the right student
+- [X] create optional duplicate checking function
 - [X] fix "add_grade" function to work for both numeric/string scores
 - [X] add function to ImportRecord to print out any grades stored and ready to import and test
 - [X] pass in test type, date, form etc into importrecord init function for storage of grades to import
