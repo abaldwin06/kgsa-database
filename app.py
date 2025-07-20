@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, TextIO, Literal
 from pyairtable import Api, formulas, Table, Base
 from pyairtable.api.types import RecordDict
 from pyairtable.models.schema import FieldSchema, TableSchema
+from requests.exceptions import HTTPError
 import argparse
 import json
 from datetime import datetime
@@ -70,6 +71,7 @@ class ImportRecord:
                 
                 if self.get("zeraki_num") == at_znum:
                     self.at_id = student['fields']['ID']
+                    self.at_rec_id = student['id']
                     self.match_type = 'adm no'
                     self.matched_record = student
                     try:
@@ -159,28 +161,28 @@ class ImportRecord:
         text=''
         try:
             text = text + f"""
-            Zeraki ADM No: {self.get('zeraki_num')}"""
+    Zeraki ADM No: {self.get('zeraki_num')}"""
         except TypeError:
             pass
         try:
             text = text + f"""
-            Matched by {self.get('match_type')} to Airtable ID: {self.get('at_id')}"""
+    Matched by {self.get('match_type')} to Airtable ID: {self.get('at_id')}"""
         except TypeError:
             pass
         try:
             text = text + f"""
-            Student: {self.name()} from {self.grad_year}"""
+    Student: {self.name()} from {self.grad_year}"""
         except TypeError:
             #shouldn't happen
             pass
         try:
             text = text + f"""
-            KCPE score: """+ str(self.get('kcpe'))
+    KCPE score: """+ str(self.get('kcpe'))
         except TypeError:
             pass
         try:
             text = text + f"""
-            Student has {len(self.grades) - 1} grades from {self.test_date} - {self.form} {self.test_type} """
+    {self.test_date} - {self.form} {self.test_type} test results for {len(self.grades) - 1} subjects """
         except:
             pass
         return text
@@ -201,11 +203,23 @@ class ImportRecord:
     
     def print_grades(self):
         for grade in self.grades:
-            print(f"{grade['subj']}: {grade['str']} {grade['num']}")
+            print(f"""        {grade['subj']}: {grade['str']} {grade['num']}""")
 
     def return_grades_import_list(self):
-        #TODO add a function to create an array of grade records to create and import
-        pass
+        import_list = []
+
+        for grade in self.grades:
+            grade_dict = {}
+            grade_dict['Student ID'] = [self.at_rec_id]
+            grade_dict['Date of Score']= self.test_date,
+            grade_dict['Form'] = self.form
+            grade_dict['Score Type'] = self.test_type
+            grade_dict['Date of Score']= self.test_date
+            grade_dict['Subject'] = grade['subj']
+            grade_dict['Letter Score'] = grade['str']
+            grade_dict['Numeric Score'] = grade['num']
+            import_list.append(grade_dict)
+        return import_list
 
     def return_student_import_dict(self,at_id=None):
         import_dict = {}
@@ -291,15 +305,14 @@ def select_file() -> Optional[TextIO]:
 def print_dict(d:dict):
     print(json.dumps(d, indent=4))
 
-def compare_students(csv_data:dict,db_data:dict):
+def compare_records(csv_data:dict,db_data:dict):
     keys_to_update = []
-    print("Proposed updates to the DB:")
-
+    comparison_text = "Proposed updates to the DB:"
     for key,csv_val in csv_data.items():
 
         # DATA TO BE ADDED
         if key not in db_data.keys():
-            print(f" -add-  {key}: {csv_val}")
+            comparison_text = comparison_text + f"\n -add-  {key}: {csv_val}"
             keys_to_update.append(key)
         else:
             db_val = db_data[key]
@@ -324,14 +337,18 @@ def compare_students(csv_data:dict,db_data:dict):
 
             # DATA THAT WON'T BE CHANGED
             if equal:
-                print(f"        {key}: {db_val}")
+                comparison_text = comparison_text + f"\n        {key}: {db_val}"
 
             # DATA TO BE UPDATED
             else:    
-                print(f" -edit- {key}: {db_data[key]} -> {csv_val}")
+                comparison_text = comparison_text + f"\n -edit- {key}: {db_data[key]} -> {csv_val}"
                 keys_to_update.append(key)
     
-    print("")
+    if len(keys_to_update) > 0:
+        print(comparison_text + "\n")
+    else:
+        print("No differences between import data and existing record.\n")
+
     return keys_to_update
 
 def user_quitting(input:str):
@@ -352,6 +369,33 @@ def get_date_from_user():
                 raise UserQuitOut
             else:
                 print("Invalid format. Please enter a valid date in YYYY-MM-DD format.")
+
+
+def get_grade_import_details(scores_schema:TableSchema, import_list:List[ImportRecord], grad_year:str) -> Optional[Tuple[str]]:
+    # column IDs for Test Scores Table
+    test_date_col = get_field_from_table(scores_schema,'fldYmomAHoRF6mQUQ') #Name of AT Column: Date of Score
+    form_col = get_field_from_table(scores_schema,'fldf2lj8I78aQnUoh') #Name of AT Column: Form
+    test_type_col= get_field_from_table(scores_schema,'fldzfmDP86VoOPPb4') #Name of AT Column: Score Type
+
+    # get score type
+    print('What type of test scores are in the file to be imported?')
+    test_type = user_selection(get_field_options(test_type_col),True) #Could raise UserQuitOut
+
+    # get which form the student was in
+    if test_type == 'KCSE':
+        form = "Form 4"
+    else:
+        print('This exam was taken while the students were in what form?')
+        form = user_selection(get_field_options(form_col),True)  #Could raise UserQuitOut
+
+    print('On what date was this exam taken?')
+    test_date_str = get_date_from_user()  #Could raise UserQuitOut
+    
+    for rec in import_list:
+        rec.add_test_type(test_type,form,test_date_str,grad_year)
+
+    return import_list
+
 
 # CSV Processing Functions
 def parse_csv(file:TextIO) -> Optional[List[List[str]]]:
@@ -550,6 +594,29 @@ def create_student(student_dict:dict,students_table) -> RecordDict:
         print_dict(student_dict)
         return False
 
+def create_grade(grade_dict:dict,grade_table) -> RecordDict:
+    #grades_dict = convert_numeric_values(students_table,students_table)
+    try:
+        created_grade = grade_table.create(grade_dict)
+        print(f"Successfully created Grade ID {created_grade['fields']['Score ID']} with details: {str(grade_dict)}")
+        return created_grade
+    except HTTPError as e:
+         print(f"Unable to create Grade with details: ")
+         print_dict(grade_dict)
+         print(e)
+         return False
+
+def update_grade(grade_dict:dict,grade_to_update:str,grade_table):
+    try:
+        updated_grade = grade_table.update(grade_to_update,grade_dict)
+        print(f"Successfully updated Grade ID {updated_grade['fields']['Score ID']} with details: {str(grade_dict)}")
+        return updated_grade
+    except HTTPError as e:
+         print(f"Unable to update Grade with details: ")
+         print_dict(grade_dict)
+         print(e)
+         return False
+
 def remind_if_test_mode(test_flag,reminder_before_import:bool=True):
     if test_flag:
         if reminder_before_import:
@@ -622,8 +689,8 @@ Now importing CSV row {import_record.get('csv_row')}...
             csv_fields = import_record.return_student_import_dict()
             db_student = import_record.matched_record
             db_fields = db_student['fields']
-            keys_to_update = compare_students(csv_fields,db_fields)
-            if len(keys_to_update) < 1:
+            keys_to_update = compare_records(csv_fields,db_fields)
+            if len(keys_to_update) == 0:
                 print(f"No data to update on Student Record {db_fields['ID']}, skipping student.")
                 continue
             fields_to_import = {}
@@ -664,62 +731,93 @@ Now importing CSV row {import_record.get('csv_row')}...
     return count_total, count_created, count_updated
 
 # Grades functions
-def import_grades(import_data:List[ImportRecord],student_records:List[RecordDict],stu_tbl:Table,grd_tbl:Table,grd_sch:TableSchema):
-    
-    # TODO 
-    # keep track of number of student records updated, grades created
-    count_total_students = 0
-    count_updated_students = 0
-    count_created_students = 0
-    count_imported_grades = 0
+def import_grades(import_data:List[ImportRecord],student_records:List[RecordDict],grd_tbl:Table,test_flag:bool=True):
+    print("")
+    print(f"Would you like to check for duplicates and approve each grade before importing?")
+    remind_if_test_mode(test_flag)
+    print('Please select Y/N:')
+    choice = user_selection(options_list=['Yes','No'],quit_allowed=True) #could raise UserQuitOut
+    if choice == 'Yes':
+        approve_each_and_dup_check = True
+    else:
+        approve_each_and_dup_check = False
 
-    # TODO
+    # keep track of number of student records updated, grades created
+    count_unmatched_students = 0
+    count_matched_students = 0
+    count_imported_grades = 0
+    count_imported_with_errors = 0
+
     # Loop through import data
     for import_rec in import_data:
         import_rec.match_to_at_student(student_records)
         if import_rec.get('at_id') == None:
             print(f"No airtable record found for student {import_rec.name()}. Skipping...")
+            count_unmatched_students+=1
             continue
-        print(import_rec)
-        import_rec.print_grades()
+        else:
+            count_matched_students+=1
+        grade_list = import_rec.return_grades_import_list()
+        for grade in grade_list:
+            found_dup = False
 
-    # TODO
-    # Identify matching student or create student
-    # Get next available airtable ID for the relevant student records - in case a new record is needed
-    #at_student_id = get_next_at_student_id(grad_year,student_records)
+            if approve_each_and_dup_check:
+                # Check for a duplicate grade record
+                for grd in grd_tbl.all():
+                    try:
+                        if grd['fields']['Student ID'] == grade['Student ID'] and grd['fields']['Date of Score'] == grade['Date of Score'] and grd['fields']['Subject'] == grade['Subject']:
 
-    # TODO
-    # Check for a duplicate grade record
+                            print(f"There is already a {grade['Subject']} grade for student {import_rec.name()} on {grade['Date of Score']}:")
+                            keys_to_update = compare_records(grade,grd['fields'])
+                            found_dup = True
+                            dup_grade = grd['id']
+                            break
+                    except KeyError:
+                        continue
 
-    # TODO replace this print out with the actual importing of the grades
-    print("Grade imports not yet supported, quitting program.")
+                if found_dup and len(keys_to_update)>0:
+                    print(f"Would you like to update the Airtable record with the data above?")
+                elif found_dup==False:
+                    print(f"Would you like to create an Airtable record with the following data:")
+                    print_dict(grade)
+                else:
+                    choice="No"
+                    print("Skipping grade because of duplicate... \n")
+                    continue
+                remind_if_test_mode(test_flag)
+                print('Please select Y/N:')
+                try:
+                    choice = user_selection(options_list=['Yes','No'],quit_allowed=True)
+                except UserQuitOut:
+                    print_grade_import_summary(count_imported_grades,count_matched_students,count_unmatched_students)
+                    raise UserQuitOut
+            else:
+                choice = "Yes"
+            if choice == 'No':
+                print(f"Skipping grade...")
+                continue
+            if test_flag == True:
+                count_imported_grades += 1
+            else:
+                if found_dup:
+                    created_grade = update_grade(grade,dup_grade,grd_tbl)
+                else:
+                    created_grade = create_grade(grade,grd_tbl)
+                if created_grade == False:
+                    print("Failed to import record.")
+                else:
+                    if check_field_errors(grade, created_grade):
+                        count_imported_with_errors+=1
+                    else:
+                        count_imported_grades += 1
 
-    return False
+    print_grade_import_summary(count_imported_grades,count_matched_students,count_unmatched_students)
+    return True
 
-def get_grade_import_details(scores_schema:TableSchema, import_list:List[ImportRecord], grad_year:str) -> Optional[Tuple[str]]:
-    # column IDs for Test Scores Table
-    test_date_col = get_field_from_table(scores_schema,'fldYmomAHoRF6mQUQ') #Name of AT Column: Date of Score
-    form_col = get_field_from_table(scores_schema,'fldf2lj8I78aQnUoh') #Name of AT Column: Form
-    test_type_col= get_field_from_table(scores_schema,'fldzfmDP86VoOPPb4') #Name of AT Column: Score Type
-
-    # get score type
-    print('What type of test scores are in the file to be imported?')
-    test_type = user_selection(get_field_options(test_type_col),True) #Could raise UserQuitOut
-
-    # get which form the student was in
-    if test_type == 'KCSE':
-        form = "Form 4"
-    else:
-        print('This exam was taken while the students were in what form?')
-        form = user_selection(get_field_options(form_col),True)  #Could raise UserQuitOut
-
-    print('On what date was this exam taken?')
-    test_date_str = get_date_from_user()  #Could raise UserQuitOut
-    
-    for rec in import_list:
-        rec.add_test_type(test_type,form,test_date_str,grad_year)
-
-    return import_list
+def print_grade_import_summary(count_imported_grades,count_matched_students,count_unmatched_students):
+    print(f"{count_imported_grades} grades imported for {count_matched_students} students.")
+    if count_unmatched_students > 0:
+        print(f"Grades not imported for {count_unmatched_students} due to not being able to match to a student record in Airtable")
 
 def main_import(test=True):
     """Main program that calls user input functions and import functions
@@ -786,8 +884,12 @@ def main_import(test=True):
                 return False
 
             # import the grades
+            print("")
             print(f"User will be importing {import_list[0].get('test_type')} scores from {import_list[0].get('test_date')} which were taken by the {grad_year} grad year when they were in {import_list[0].get('form')}")
-            import_grades(import_list,student_records,students_table,grades_table,scores_schema)
+            try:
+                import_grades(import_list,student_records,grades_table,test) #could raise UserQuitOut
+            except UserQuitOut:
+                return False
             return True
         else:
             print("Invalid import type, shouldn't ever get to this code, quitting program.")
