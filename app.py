@@ -8,6 +8,8 @@ from requests.exceptions import HTTPError
 import argparse
 import json
 from datetime import datetime
+import openpyxl
+import re
 
 class DuplicateRecordError(Exception):
     pass
@@ -453,11 +455,14 @@ def get_field_from_table(table_schema,field_id):
         return matched_fields[0]
 
 # Student functions
-def get_students_from_grad_year(fields:List[str],students_table:Table) -> Optional[Tuple[List[RecordDict],str]]:
+def get_students_from_grad_year(fields:List[str],students_table:Table,grad_year:str) -> Optional[Tuple[List[RecordDict],str]]:
     grad_yr_field = students_table.schema().field('Grad Class')
     grad_yr_options = get_field_options(grad_yr_field)
-    print('Please select the graduating class year for the students you are importing:')
-    selected_grad_yr = user_selection(grad_yr_options) # Could Raise UserQuitOut
+    if grad_year not in grad_yr_options:
+        print('Please select the graduating class year for the students you are importing:')
+        selected_grad_yr = user_selection(grad_yr_options) # Could Raise UserQuitOut
+    else:
+        selected_grad_yr = grad_year
 
     formula = formulas.match({'Grad Class': selected_grad_yr})
     records = students_table.all(fields=fields, formula=formula)
@@ -730,6 +735,169 @@ Now importing CSV row {import_record.get('csv_row')}...
 
     return count_total, count_created, count_updated
 
+def convert_xlsx_with_openpyxl(xlsx_file, csv_file):
+    """
+    Converts a single sheet of an XLSX file to a CSV file,
+    skipping the first row (header).
+    """
+    wb = openpyxl.load_workbook(
+        xlsx_file,
+        read_only=True,
+        data_only=True
+    )
+
+    sh = wb.active # Get the active worksheet
+
+    rows = sh.iter_rows(values_only=True)
+
+    # Skip the first row (header)
+    next(rows, None)
+
+    with open(csv_file, 'w', newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        for row in rows:
+            writer.writerow([
+                value if value is not None else ""
+                for value in row
+            ])
+
+    print(f"Successfully converted '{xlsx_file}' to '{csv_file}'")
+
+def get_filename_from_user(original_file_name):
+    """
+    Gets information from user to determine standardized file name for CSV
+    """
+    years = [
+        "2012", "2013", "2014", "2015", "2016", "2017", "2018",
+        "2019", "2020", "2021", "2022", "2023", "2024", "2025",
+        "2026", "2027", "2028"
+    ]
+    forms = ["Form 1", "Form 2", "Form 3", "Form 4"]
+    test_types = [
+        "KCSE",
+        "Term 1 - Entry",
+        "Term 1 - Mid Term",
+        "Term 1 - End Term",
+        "Term 1 - Other",
+        "Term 2 - Entry",
+        "Term 2 - Mid Term",
+        "Term 2 - End Term",
+        "Term 2 - Other",
+        "Term 3 - Entry",
+        "Term 3 - End Term",
+        "Term 3 - Mid Term",
+    ]
+    test_dates = {
+        "2021": {
+            "Term 1 - Entry": "2021-07-26",
+            "Term 1 - Mid Term": "2021-08-28",
+            "Term 1 - End Term": "2021-10-01",
+            "Term 2 - Entry": "2021-10-11",
+            "Term 2 - Mid Term": "2021-11-16",
+            "Term 2 - End Term": "2021-12-23",
+            "Term 3 - Entry": "2022-01-03",
+            "Term 3 - Mid Term": "2022-02-03",
+            "Term 3 - End Term": "2022-03-04",
+        },
+        "2022": {
+            "Term 1 - Entry": "2022-04-25",
+            "Term 1 - Mid Term": "2022-05-28",
+            "Term 1 - End Term": "2022-07-01",
+            "Term 2 - Entry": "2022-07-11",
+            "Term 2 - Mid Term": "2022-08-13",
+            "Term 2 - End Term": "2022-09-16",
+            "Term 3 - Entry": "2022-09-26",
+            "Term 3 - Mid Term": "2022-10-25",
+            "Term 3 - End Term": "2022-11-25",
+        },
+        "2023": {
+            "Term 1 - Entry": "2023-01-23",
+            "Term 1 - Mid Term": "2023-03-09",
+            "Term 1 - End Term": "2023-04-21",
+            "Term 2 - Entry": "2023-05-08",
+            "Term 2 - Mid Term": "2023-06-24",
+            "Term 2 - End Term": "2023-08-11",
+            "Term 3 - Entry": "2023-08-28",
+            "Term 3 - Mid Term": "2023-09-30",
+            "Term 3 - End Term": "2023-11-03",
+        },
+        "2024": {
+            "Term 1 - Entry": "2024-01-08",
+            "Term 1 - Mid Term": "2024-02-21",
+            "Term 1 - End Term": "2024-04-05",
+            "Term 2 - Entry": "2024-04-29",
+            "Term 2 - Mid Term": "2024-06-15",
+            "Term 2 - End Term": "2024-08-02",
+            "Term 3 - Entry": "2024-08-26",
+            "Term 3 - Mid Term": "2024-09-25",
+            "Term 3 - End Term": "2024-10-25",
+        },
+        "2025": {
+            "Term 1 - Entry": "2025-01-06",
+            "Term 1 - Mid Term": "2025-02-19",
+            "Term 1 - End Term": "2025-04-04",
+            "Term 2 - Entry": "2025-04-28",
+            "Term 2 - Mid Term": "2025-06-14",
+            "Term 2 - End Term": "2025-08-01",
+            "Term 3 - Entry": "2025-08-25",
+            "Term 3 - Mid Term": "2025-09-24",
+            "Term 3 - End Term": "2025-10-24",
+        }
+    }
+    while True:
+        # get score type
+        print('Class of...')
+        grad_year = user_selection(years,True) #Could raise UserQuitOut
+        print('Take while in form...')
+        form = user_selection(forms,True) #Could raise UserQuitOut
+        print('Exam taken during calendar year...')
+        year_of_exam = user_selection(years,True)  #Could raise UserQuitOut
+        print('Type of exam...')
+        test_type = user_selection(test_types,True)  #Could raise UserQuitOut
+        test_date = test_dates[year_of_exam][test_type]
+
+        print(f'Original file name is {original_file_name} ')
+        new_file_name = f'./to-import/C{grad_year} - {test_type} - {form} - {test_date}.csv'
+        print(f'{new_file_name}')
+        return new_file_name
+
+def parse_standard_filename(filename):
+    """
+    Parse standardized KGSA exam CSV filename.
+
+    Expected format:
+    C{grad_year} - {test_type} - {form} - {test_date}.csv
+
+    Returns:
+        grad_year (str)
+        test_type (str)
+        form (str)
+        test_date (str)
+
+    Raises:
+        ValueError if filename does not match expected format
+    """
+
+    base = os.path.basename(filename)
+
+    pattern = (
+        r"^C(?P<grad_year>\d{4})\s-\s"
+        r"(?P<test_type>.+?)\s-\s"
+        r"(?P<form>Form\s[1-4])\s-\s"
+        r"(?P<test_date>\d{4}-\d{2}-\d{2})\.csv$"
+    )
+
+    match = re.match(pattern, base)
+    if not match:
+        raise ValueError(f"Filename does not match expected format: {base}")
+
+    grad_year = match.group("grad_year")
+    test_type = match.group("test_type")
+    form = match.group("form")
+    test_date = match.group("test_date")
+
+    return grad_year, test_type, test_date, form
+
 # Grades functions
 def import_grades(import_data:List[ImportRecord],student_records:List[RecordDict],grd_tbl:Table,test_flag:bool=True):
     print("")
@@ -842,9 +1010,42 @@ def main_import(test=True):
         except UserQuitOut:
             return False
 
-        # PARSE CSV IMPORT DATA
-        # Parse and Validate CSV
-        import_list = csv_to_import_records(selected_file)
+        if selected_file.name.endswith('.csv'):
+            # PARSE CSV IMPORT DATA
+
+            # Parse key fields from standard filenaming structure
+            try:
+                grad_year, test_type, test_date, form = parse_standard_filename(selected_file.name)
+                print(f"""Selected file contains grades for:
+        Class of {grad_year}'s {test_type} exam taken on {test_date} during their {form} year""")
+            except ValueError:
+                grad_year = None
+                test_type = None
+                test_date = None
+                form = None
+            
+            # Parse and Validate CSV
+            import_list = csv_to_import_records(selected_file)
+        else:
+            csv_name = get_filename_from_user(selected_file.name)
+
+            # Parse key fields from standard filenaming structure
+            try:
+                grad_year, test_type, test_date, form = parse_standard_filename(csv_name)
+                print(f"""Selected file contains grades for:
+        Class of {grad_year}'s {test_type} exam taken on {test_date} during their {form} year""")
+            except ValueError:
+                grad_year = None
+                test_type = None
+                test_date = None
+                form = None
+            
+            # Convert XSLX to CSV
+            convert_xlsx_with_openpyxl(selected_file.name, csv_name)
+
+            # Parse and Validate CSV
+            selected_file = open(csv_name,mode="r",newline='')
+            import_list = csv_to_import_records(selected_file)
             
         # PULL RELEVANT RECORDS AND FIELDS FROM DB
         # Connect to Airtable Table: Students
@@ -856,7 +1057,7 @@ def main_import(test=True):
         
         # limit the records returned by grad year
         try:
-            student_records, grad_year= get_students_from_grad_year(student_import_fields,students_table)
+            student_records, grad_year= get_students_from_grad_year(student_import_fields,students_table,grad_year)
         except UserQuitOut:
             return False
 
@@ -877,12 +1078,18 @@ def main_import(test=True):
             scores_schema = grades_table.schema()
 
             # Ask user for test type, test date and which form the student was in when test was taken
-            # Update import list of records with these details
-            try:
-                import_list = get_grade_import_details(scores_schema,import_list,grad_year)
-            except UserQuitOut:
-                return False
-
+            # Check if details already in filename
+            if None in (grad_year, test_type, test_date, form):
+                # if not, gather details from user and update import list with details
+                try:
+                    import_list = get_grade_import_details(scores_schema,import_list,grad_year)
+                except UserQuitOut:
+                    return False
+            else:
+                # Else if details already in filename, update import list of records with these details
+                for rec in import_list:
+                    rec.add_test_type(test_type,form,test_date,grad_year)
+            
             # import the grades
             print("")
             print(f"User will be importing {import_list[0].get('test_type')} scores from {import_list[0].get('test_date')} which were taken by the {grad_year} grad year when they were in {import_list[0].get('form')}")

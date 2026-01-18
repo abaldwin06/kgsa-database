@@ -45,6 +45,9 @@ Import can create new student records, match to existing records using zeraki ID
 3. Data will file to JSON files in `.export/` subdirectory.
 
 # TODO 
+- [ ] create function to read from html file instead of csv
+- [ ] update readme with how to create csvs from zeraki
+- [ ] update import to parse out test type etc from file name
 - [ ] test any issues with the convert integer and string values function (convert_numeric_values function)
 - [ ] Add a function to store Zeraki name to DB so we stop asking for name matches OR add a way to opt out of name changes in both import types
 - [ ] fix bug with matching by last name:
