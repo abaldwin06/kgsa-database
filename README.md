@@ -50,7 +50,7 @@ Import can create new student records, match to existing records using zeraki ID
 3. Data will file to JSON files in `.export/` subdirectory.
 
 # TODO 
-- [ ] resolve issue where there is an error of TT PTS not being a number
+- [ ] delete or move XLSX files or already imported grades
 - [ ] test updating the student list
 - [ ] test any issues with the convert integer and string values function (convert_numeric_values function)
 - [ ] Add a function to store Zeraki name to DB so we stop asking for name matches OR add a way to opt out of name changes in both import types
@@ -60,6 +60,7 @@ Import can create new student records, match to existing records using zeraki ID
     >    To recreate, remove the zeraki num from AT for a student that matches by last name (Anne Achieng Juma 2024) and try to import students
 
 Things completed:
+- [X] resolve issue where there is an error of TT PTS not being a number
 - [X] create function to change .xlsx to csv and delete top row
 - [X] update import to parse out test type etc from file name
 - [X] add a function to ImportRecord to return an array of grade records in Airtable format, update record_dict function to work for students and grades

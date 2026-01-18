@@ -38,7 +38,8 @@ class ImportRecord:
                     pass
             elif header == 'TT PTS':
                 try:
-                    self.grades[0]['num'] = int(row[idx])
+                    self.grades[0]['num'] = float(row[idx])
+                    print(f"Student {self.zeraki_name} has an overall numeric grade of {float(row[idx])}.")
                 except ValueError:
                     print(f"numeric grade expected for TT PTS")
                     pass
@@ -48,6 +49,7 @@ class ImportRecord:
             elif header == 'GR':
                 try:
                     self.grades[0]['str'] = str(row[idx])
+                    print(f"Student {self.zeraki_name} has an overall grade of {str(row[idx])}.")
                 except ValueError:
                     print(f"string grade expected for GR")
                     pass
@@ -115,14 +117,27 @@ class ImportRecord:
                     grade_num = int(grade)
                 except:
                     grade_str = grade
-            if grade_num == None or grade_str == None:
-                print(f"CSV row {self.csv_row} student {self.zeraki_name} has {subj} grades int: {grade_num} and str: {grade_str}")
+            if grade_num is None and grade_str is None:
+                print(f"CSV row {self.csv_row} student {self.zeraki_name} has null grades for {subj}. Skipping...")
+            elif grade_num == None:
+                self.grades.append({
+                    'subj':subj,
+                    'str':grade_str
+                        })
+                print(f"CSV row {self.csv_row} student {self.zeraki_name} has a {grade_str} grade for {subj}.")
+            elif grade_str == None:
+                self.grades.append({
+                    'subj':subj,
+                    'num':grade_num
+                        })
+                print(f"CSV row {self.csv_row} student {self.zeraki_name} has a {grade_num} grade for {subj}.")
             else:
                 self.grades.append({
                                     'subj':subj,
                                     'str':grade_str,
                                     'num':grade_num
                                     })
+                print(f"CSV row {self.csv_row} student {self.zeraki_name} has a {grade_str} grade with {grade_num} pts for {subj}.")
 
     def add_test_type(self,test_type:str,form:str,test_date_str:str,grad_year:str):
         self.test_type = test_type #user input should have already validated test type matches Airtable vals
@@ -213,7 +228,7 @@ class ImportRecord:
         for grade in self.grades:
             grade_dict = {}
             grade_dict['Student ID'] = [self.at_rec_id]
-            grade_dict['Date of Score']= self.test_date,
+            grade_dict['Date of Score']= self.test_date, #TODO is this a mistake? 
             grade_dict['Form'] = self.form
             grade_dict['Score Type'] = self.test_type
             grade_dict['Date of Score']= self.test_date
@@ -933,9 +948,10 @@ def import_grades(import_data:List[ImportRecord],student_records:List[RecordDict
                 # Check for a duplicate grade record
                 for grd in grd_tbl.all():
                     try:
-                        if grd['fields']['Student ID'] == grade['Student ID'] and grd['fields']['Date of Score'] == grade['Date of Score'] and grd['fields']['Subject'] == grade['Subject']:
+                        #TODO test change this to check for test type not date
+                        if grd['fields']['Student ID'] == grade['Student ID'] and grd['fields']['Score Type'] == grade['Score Type'] and grd['fields']['Form'] == grade['Form'] and grd['fields']['Subject'] == grade['Subject']:
 
-                            print(f"There is already a {grade['Subject']} grade for student {import_rec.name()} on {grade['Date of Score']}:")
+                            print(f"There is already a {grade['Subject']} grade for student {import_rec.name()} for a {grade['Form']} {grade['Score Type']} exam:")
                             keys_to_update = compare_records(grade,grd['fields'])
                             found_dup = True
                             dup_grade = grd['id']
@@ -1092,6 +1108,7 @@ def main_import(test=True):
             
             # import the grades
             print("")
+            print(f"Source file: {selected_file.name}")
             print(f"User will be importing {import_list[0].get('test_type')} scores from {import_list[0].get('test_date')} which were taken by the {grad_year} grad year when they were in {import_list[0].get('form')}")
             try:
                 import_grades(import_list,student_records,grades_table,test) #could raise UserQuitOut
