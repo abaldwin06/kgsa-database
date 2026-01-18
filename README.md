@@ -11,9 +11,13 @@ This repository contains a program that manages automatic and manual imports int
 6. Update the app.py variable for the `access_key_filename`.
 
 # Current Capabilities
+## Prerequisite to Download CSVs from Zeraki
+1. You need to be set up as a Zeraki user with super admin priviliges. 
+2. You then navigate to a set of test scores, click "download" and select "merit list" and download as spreadsheet.
+
 ## Import data from Zeraki
 Import can create new student records, match to existing records using zeraki ID or name, update records with zeraki numbers, different names, KCPE scores, KCSE scores, term grades etc. 
-1. Copy grades table into a csv file and move file into `to-import` folder. Naming convention for files: `Zeraki Files - [C#### FOR GRAD CLASS] [EXAM TYPE] - [GRADE YEAR]`
+1. Download a spreadsheet (.xlsx) file from Zeraki and save to the `to_import` folder
 2. Open a terminal window, navigate to the project folder and activate python environment `source .env/bin/activate`
 3. Run import script:
  * In test mode:`python3 app.py` (no edits committed to DB) 
@@ -22,6 +26,7 @@ Import can create new student records, match to existing records using zeraki ID
  * Import Students and KCPE scores
  * Import Grades (not yet supported)
 5. The next selection prompt will allow you to select a file from the `to-import` folder
+6. If the file is an .xlsx file and you select it, you will be prompted for details about the scores in that file. This will take the active sheet of the spreadsheet and convert it to a .csv file using the naming convention: `[C#### FOR GRAD CLASS] - [EXAM TYPE] - F# - [TEST DATE].csv`
 
 ### Import Students, Zeraki ID, KCPE Scores
 1. Once a file is selected, the program will have you select which grad class the data is for.
@@ -31,7 +36,7 @@ Import can create new student records, match to existing records using zeraki ID
  * The user is able to select field by field if new data should be added to the Airtable record, or updated if the values differ between databases. Fields to update include: Zeraki ID, Name, KCPE scores.
 
 ### Import Term Grades or KCSE scores from Zeraki
-1. Once a file is selected, the program will have you select the following:
+1. Once a file is selected, the program will have you select the following (if not already embedded in the CSV name):
  * Which grad class the data is for
  * What type of test scores are to be imported (Term 1, 2, 3, mid term, end term, KCSE etc)
  * The date the test scores were generated
@@ -45,9 +50,8 @@ Import can create new student records, match to existing records using zeraki ID
 3. Data will file to JSON files in `.export/` subdirectory.
 
 # TODO 
-- [ ] create function to read from html file instead of csv
-- [ ] update readme with how to create csvs from zeraki
-- [ ] update import to parse out test type etc from file name
+- [ ] resolve issue where there is an error of TT PTS not being a number
+- [ ] test updating the student list
 - [ ] test any issues with the convert integer and string values function (convert_numeric_values function)
 - [ ] Add a function to store Zeraki name to DB so we stop asking for name matches OR add a way to opt out of name changes in both import types
 - [ ] fix bug with matching by last name:
@@ -56,6 +60,8 @@ Import can create new student records, match to existing records using zeraki ID
     >    To recreate, remove the zeraki num from AT for a student that matches by last name (Anne Achieng Juma 2024) and try to import students
 
 Things completed:
+- [X] create function to change .xlsx to csv and delete top row
+- [X] update import to parse out test type etc from file name
 - [X] add a function to ImportRecord to return an array of grade records in Airtable format, update record_dict function to work for students and grades
 - [X] able to create a new test scores row for each grade and link it to the right student
 - [X] create optional duplicate checking function
