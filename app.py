@@ -234,19 +234,26 @@ class ImportRecord:
             grade_dict['Date of Score']= self.test_date
             grade_dict['Subject'] = grade['subj']
             grade_dict['Letter Score'] = grade['str']
-            grade_dict['Numeric Score'] = grade['num']
+            try:
+                grade_dict['Numeric Score'] = grade['num']
+            except KeyError:
+                pass
             import_list.append(grade_dict)
         return import_list
 
-    def return_student_import_dict(self,at_id=None):
+    def return_student_import_dict(self,at_id=None,grad_year=None):
         import_dict = {}
         if self.get('at_id'):
             import_dict['ID'] = self.get('at_id')
+        elif at_id != None:
+            import_dict['ID'] = at_id
         import_dict['Zeraki ADM No'] = self.get('zeraki_num')
         import_dict['First name'] = self.name('first').title()
         import_dict['Last name'] = self.name('last').title()
         if self.get('grad_year'):
             import_dict['Grad Class'] = self.get('grad_year')
+        elif grad_year != None:
+            import_dict['Grad Class'] = grad_year
         if self.get('kcpe'):
             import_dict['KCPE Score'] = self.get('kcpe')
         return import_dict
@@ -566,13 +573,13 @@ def find_match_by_name(record:ImportRecord, students:List[RecordDict]) -> Import
     print("")
     return record
 
-def convert_numeric_values(table:Table,field_dict:dict):
-    for key,val in field_dict.items():
+def convert_numeric_values(table:Table,fields_to_import:dict):
+    for key,val in fields_to_import.items():
         field = table.schema().field(key)
         if field.type  == 'number':
-            field_dict[key] = int(val)
+            fields_to_import[key] = int(val)
 
-    return field_dict
+    return fields_to_import
 
 def check_field_errors(input:dict,output:RecordDict) -> True:
     errors = []
@@ -602,16 +609,15 @@ def update_student(student_record:RecordDict,fields_to_update:dict,students_tabl
         print(f"Successfully updated Student ID {student_record['fields']['ID']} with {str(fields_to_update)}")
         return True
 
-def create_student(student_dict:dict,students_table) -> RecordDict:
-    #TODO check if this is working (should the parameters be dict and table?)
-    student_dict = convert_numeric_values(students_table,students_table)
+def create_student(student_to_create:dict,students_table:Table) -> RecordDict:
+    student_to_create = convert_numeric_values(students_table,student_to_create)
     try:
-        created_student = students_table.create(student_dict)
-        print(f"Successfully created Student ID {created_student['fields']['ID']} with Student details: {str(student_dict)}")
+        created_student = students_table.create(student_to_create)
+        print(f"Successfully created Student ID {created_student['fields']['ID']} with Student details: {str(created_student['fields'])}")
         return created_student
     except Exception:
         print(f"Unable to create Student with Student details: ")
-        print_dict(student_dict)
+        print_dict(student_to_create)
         return False
 
 def create_grade(grade_dict:dict,grade_table) -> RecordDict:
@@ -676,7 +682,8 @@ Now importing CSV row {import_record.get('csv_row')}...
             print(f"")
             print(f"No match was found.")
             print(f"Would you like to create an Airtable record with the following data:")
-            print_dict(import_record.return_student_import_dict())
+            student_template = import_record.return_student_import_dict(at_student_id,grad_year)
+            print_dict(student_template)
             remind_if_test_mode(test_flag)
             print('Please select Y/N:')
             try:
@@ -687,13 +694,12 @@ Now importing CSV row {import_record.get('csv_row')}...
             if choice == 'No':
                 print(f"Skipping student...")
                 continue
-            student_template = import_record.return_student_import_dict(at_student_id)
             remind_if_test_mode(test_flag,False)
             if test_flag == True:
                 import_outcome = True
             else:
                 created_student = create_student(student_template,students_table)
-                if isinstance(created_student,RecordDict):
+                if created_student != False:
                     import_outcome = True # if record was created, import was successful enough that the at ID should be incremented
                     check_field_errors(student_template, created_student)
             if import_outcome == True:
@@ -735,9 +741,15 @@ Now importing CSV row {import_record.get('csv_row')}...
 
             # move forward with updating the student record
             if test_flag == True:
-                import_outcome = True
+                if len(fields_to_import) == 0:
+                    print("No fields to update, skipping...")
+                else:
+                    import_outcome = True
             else:
-                import_outcome = update_student(db_student,fields_to_import,students_table)
+                if len(fields_to_import) == 0:
+                    print("No fields to update, skipping...")
+                else:
+                    import_outcome = update_student(db_student,fields_to_import,students_table)
             if import_outcome == True:
                 import_record.at_edit_type = 'edit'
                 count_updated += 1
@@ -869,7 +881,10 @@ def get_filename_from_user(original_file_name):
         year_of_exam = user_selection(years,True)  #Could raise UserQuitOut
         print('Type of exam...')
         test_type = user_selection(test_types,True)  #Could raise UserQuitOut
-        test_date = test_dates[year_of_exam][test_type]
+        if test_type == 'KCSE':
+            test_date = f'{year_of_exam}-11-20'
+        else:
+            test_date = test_dates[year_of_exam][test_type]
 
         print(f'Original file name is {original_file_name} ')
         new_file_name = f'./to-import/C{grad_year} - {test_type} - {form} - {test_date}.csv'
