@@ -869,6 +869,17 @@ def get_filename_from_user(original_file_name):
             "Term 3 - Entry": "2025-08-25",
             "Term 3 - Mid Term": "2025-09-24",
             "Term 3 - End Term": "2025-10-24",
+        },
+        "2026": {
+            "Term 1 - Entry": "2026-01-12",
+            "Term 1 - Mid Term": "2026-02-25",
+            "Term 1 - End Term": "2026-04-02",
+            "Term 2 - Entry": "2026-04-27",
+            "Term 2 - Mid Term": "2026-06-24",
+            "Term 2 - End Term": "2026-07-31",
+            "Term 3 - Entry": "2026-08-24",
+            "Term 3 - Mid Term": "2026-09-15",
+            "Term 3 - End Term": "2026-10-23"
         }
     }
     while True:

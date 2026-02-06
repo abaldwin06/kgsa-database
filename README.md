@@ -51,8 +51,9 @@ Import can create new student records, match to existing records using zeraki ID
 
 # TODO 
 - [ ] delete or move XLSX files or already imported grades
-- [ ] test updating the student list
-- [ ] test any issues with the convert integer and string values function (convert_numeric_values function)
+- [ ] add a way to deal with duplicate zeraki numbers  (2027 - emmaculate)
+- [ ] checking for duplicate grates doesn't work 
+- [ ] combine importing students and grades
 - [ ] Add a function to store Zeraki name to DB so we stop asking for name matches OR add a way to opt out of name changes in both import types
 - [ ] fix bug with matching by last name:
     >    File "/Users/annebaldwin/Documents/projects/kgsa-database/app.py", line 374, in find_match_by_name
@@ -60,6 +61,9 @@ Import can create new student records, match to existing records using zeraki ID
     >    To recreate, remove the zeraki num from AT for a student that matches by last name (Anne Achieng Juma 2024) and try to import students
 
 Things completed:
+- [X] imported all grades to date
+- [X] test updating the student list
+- [X] test any issues with the convert integer and string values function (convert_numeric_values function)
 - [X] resolve issue where there is an error of TT PTS not being a number
 - [X] create function to change .xlsx to csv and delete top row
 - [X] update import to parse out test type etc from file name
